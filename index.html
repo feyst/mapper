@@ -33,7 +33,7 @@
 
     <script type="application/ecmascript">
         (async function(){
-            let response = await axios.get('https://xsl.netlify.app/saxon/2.2/SaxonJS2.js')
+            let response = await axios.get('https://data-mapper.netlify.app/saxon/2.2/SaxonJS2.js')
             let saxonJs = response.data.replace(/,xd:function\(n\)\{/, ',xd:function(n){return true;')
             let saxonJsUrl = URL.createObjectURL(new Blob([saxonJs]))
             let scriptTag = document.createElement('script')
