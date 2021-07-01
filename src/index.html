@@ -1,6 +1,7 @@
 <!doctype html>
 <html>
 <head>
+    <title>JQ and XSL mapper</title>
     <script src='https://code.jquery.com/jquery-3.4.1.min.js'></script>
     <script src="https://cdn.jsdelivr.net/npm/jq-web@0.5.1/jq.wasm.js"></script>
 
@@ -279,14 +280,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/lint/lint.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/scroll/simplescrollbars.min.css"/>
     <style>
-        .cEditor {
-            height: 95%;
-        }
-
         html {
             height: 100vh;
         }
-
         body {
             font-family: Calibri, Candara, Segoe, Segoe UI, Optima, Arial, sans-serif;
             font-size: 11px;
@@ -296,7 +292,17 @@
             flex-flow: column;
             height: 100vh;
         }
-
+        header {
+            flex: 0 1 auto;
+            width: calc(100% - 30px);
+            height: 50px;
+            background: black;
+            color: white;
+            padding: 0 15px 0 15px;
+        }
+        .cEditor {
+            height: 95%;
+        }
         .content {
             padding: 15px;
             display: grid;
@@ -306,33 +312,22 @@
             flex: 1 1 auto;
             height: calc(100vh - 110px);
         }
-
         .box {
             padding: 5px;
             border-radius: 10px;
         }
-
-        header {
-            flex: 0 1 auto;
-            width: calc(100% - 30px);
-            height: 50px;
-            background: black;
-            color: white;
-            padding: 0 15px 0 15px;
+        .CodeMirror {
+            border-radius: 10px;
+            border: dimgrey solid 1px;
         }
-
         @media (prefers-color-scheme: dark) {
             body {
                 color: #eee;
                 background: #121212;
             }
             header{
-                background: darkgrey;
+                background: #2a2a2a;
             }
-        }
-        .CodeMirror {
-            border-radius: 10px;
-            border: dimgrey solid 1px;
         }
     </style>
 
