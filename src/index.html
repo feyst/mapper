@@ -1,0 +1,310 @@
+<!doctype html>
+<html>
+<head>
+    <script src='https://code.jquery.com/jquery-3.4.1.min.js'></script>
+    <script src="https://cdn.jsdelivr.net/npm/jq-web@0.5.1/jq.wasm.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/mode/simple.min.js"></script>
+    <script src="https://unpkg.com/jshint@2.9.6/dist/jshint.js"></script>
+    <script src="https://unpkg.com/jsonlint@1.6.3/web/jsonlint.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/lint/lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/hint/javascript-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/lint/javascript-lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/lint/html-lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/lint/json-lint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/addon/edit/closetag.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/addon/fold/xml-fold.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/addon/fold/foldcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/addon/fold/foldgutter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/addon/edit/matchtags.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/scroll/simplescrollbars.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.13.1/underscore.min.js"></script>
+    <script src="https://gitcdn.xyz/repo/vkiryukhin/vkBeautify/master/vkbeautify.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+
+    <script type="application/ecmascript">
+        (async function(){
+            let response = await axios.get('https://data-mapper.netlify.app/saxon/2.2/SaxonJS2.js')
+            let saxonJs = response.data.replace(/,xd:function\(n\)\{/, ',xd:function(n){return true;')
+            let saxonJsUrl = URL.createObjectURL(new Blob([saxonJs]))
+            let scriptTag = document.createElement('script')
+            scriptTag.setAttribute('src',saxonJsUrl);
+            document.head.appendChild(scriptTag);
+        })()
+    </script>
+
+    <script>
+        const debounce = 600;
+
+        const jqMode = {
+            start: [
+                {regex: / ?/, next: 'expression'}
+            ],
+            object: [
+                {regex: / ?/, token: 'bracket', push: 'key'},
+                {regex: ',', token: 'bracket', push: 'key'},
+                {regex: '}', token: 'bracket', pop: true}
+            ],
+            array: [
+                {regex: ',', token: 'bracket'},
+                {regex: / ?/, push: 'value'},
+                {regex: ']', token: 'bracket', pop: true}
+            ],
+            key: [
+                {regex: /[a-z]\w*/i, token: 'keyword'},
+                {regex: '"', token: 'string', push: 'string'},
+                {regex: /\(/, token: 'variable-2', push: 'expression'},
+                {regex: ':', token: 'bracket', push: 'value'}
+            ],
+            value: [
+                {regex: /null|true|false/, token: 'atom'},
+                {regex: /\d+/, token: 'number'},
+                {regex: /\.\w+/, token: 'tag'},
+                {regex: /\(/, token: 'variable-2', push: 'expression'},
+                {regex: '"', token: 'string', push: 'string'},
+                {regex: '{', token: 'bracket', push: 'object'},
+                {regex: /\[/, token: 'bracket', push: 'array'},
+                {regex: /[,}\]]/, token: 'bracket', pop: true}
+            ],
+            string: [
+                {regex: /[^"\\]+/, token: 'string'},
+                {regex: /\\\(/, token: 'variable-2', push: 'expression'},
+                {regex: '"', token: 'string', pop: true}
+            ],
+            expression: [
+                {regex: /\.\w+/, token: 'tag'},
+                {regex: /\w+|==|!=|\|/, token: 'builtin'},
+                {regex: /\(/, token: 'variable-2', push: 'expression'},
+                {regex: /\)/, token: 'variable-2', pop: true},
+                {regex: '{', token: 'bracket', push: 'object'},
+                {regex: /\[/, token: 'bracket', push: 'array'}
+            ]
+        };
+        CodeMirror.defineSimpleMode('jq', jqMode);
+
+        let sourceEditor, mappingEditor, resultEditor;
+
+        const generalOptions = {
+            lineNumbers: true,
+            matchBrackets: true,
+            indentUnit: 4,
+            autocorrect: true,
+            foldGutter: true,
+            lint: true,
+            lintOnChange: true,
+            highlightLines: true,
+            gutters: ["CodeMirror-lint-markers", "CodeMirror-linenumbers", "CodeMirror-foldgutter"],
+            readOnly: false,
+            scrollbarStyle: 'simple',
+            // scrollbarStyle: null,
+        }
+        const xmlOptions = {
+            mode: "application/xml",
+            alignCDATA: true,
+            htmlMode: false,
+            autoCloseTags: true,
+            matchTags: true,
+        };
+        const jsonOptions = {
+            mode: "application/json",
+            autoCloseBrackets: true,
+        }
+
+        const jqOptions = {
+            mode: 'jq',
+            lint: {
+                'getAnnotations': jqValidator,
+                async: true,
+            },
+        }
+        const readOnlyOptions = {
+            readOnly: 'nocursor',
+            lint: false,
+        }
+
+        function jqValidator(text, updateLinting) {
+            let errors = [];
+            try {
+                jq.json({}, text)
+            } catch (e) {
+                errors = e.stack.split('jq: ')
+                errors = errors.filter(error => error !== '' && !error.match(/\d+ compile error/g))
+                errors = errors.map(error => {
+                    let lineNumber = error.match(/(?<=, line )\d+(?=:$)/m)[0] ?? 1
+                    return {
+                        from: {
+                            line: lineNumber - 1,
+                            ch: 0,
+                            sticky: null,
+                        },
+                        to: {
+                            line: lineNumber - 1,
+                            ch: 999,
+                            sticky: null,
+                        },
+                        message: error,
+                        severity: 'error',
+                    }
+                })
+            }
+            updateLinting(errors)
+        }
+
+        function setOptions(editor, options) {
+            Object.entries(options).forEach(option => editor.setOption(option[0], option[1]))
+        }
+
+        function isXml(string) {
+            return null != string && string.match(/^</)
+        }
+
+        function setEditorOptions(source, mapping, result) {
+            if (isXml(source) && 'application/xml' !== sourceEditor.getOption('mode')) {
+                setOptions(sourceEditor, {...generalOptions, ...xmlOptions})
+            } else if (!isXml(source) && 'application/json' !== sourceEditor.getOption('mode')) {
+                setOptions(sourceEditor, {...generalOptions, ...jsonOptions})
+            }
+            if (isXml(mapping) && 'application/xml' !== mappingEditor.getOption('mode')) {
+                setOptions(mappingEditor, {...generalOptions, ...xmlOptions})
+            } else if (!isXml(mapping) && 'application/json' !== mappingEditor.getOption('mode') && mapping !== '') {
+                setOptions(mappingEditor, {...generalOptions, ...jqOptions})
+            }
+            if (isXml(result) && 'application/xml' !== resultEditor.getOption('mode')) {
+                setOptions(resultEditor, {...generalOptions, ...xmlOptions, ...readOnlyOptions})
+            } else if (!isXml(result) && 'application/json' !== resultEditor.getOption('mode')) {
+                setOptions(resultEditor, {...generalOptions, ...jsonOptions, ...readOnlyOptions})
+            }
+        }
+
+        function processFields() {
+            let result = '';
+            let source = sourceEditor.getValue()
+            let mapping = mappingEditor.getValue()
+
+            if (!isXml(source) && !isXml(mapping)) {
+                result = runJq(source, mapping) ?? ''
+            }
+
+            if (isXml(source) && isXml(mapping)) {
+                result = runXsl3(source, mapping) ?? ''
+            }
+
+            setEditorOptions(source, mapping, result)
+
+            let scroll = resultEditor.getScrollInfo()
+            resultEditor.setValue(result)
+            resultEditor.scrollTo(scroll.left, scroll.top)
+        }
+
+        function runJq(source, mapping) {
+            try {
+                source = JSON.parse(source);
+                return JSON.stringify(jq.json(source, mapping), null, 4);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function runXsl(source, mapping) {
+            try{
+                let xmlParser = new DOMParser();
+                let xslParser = new DOMParser();
+                let xmlSerializer = new XMLSerializer();
+                let processor = new XSLTProcessor();
+                 xslDoc = xslParser.parseFromString(mapping, "application/xml");
+                 xmlDoc = xmlParser.parseFromString(source, "application/xml");
+
+
+                processor.importStylesheet(xslDoc);
+                let resultDoc = processor.transformToDocument(xmlDoc);
+                let resultXml = xmlSerializer.serializeToString(resultDoc);
+                return '<?xml version="1.0" encoding="UTF-8"?>\n' + vkbeautify.xml(resultXml)
+            }catch (e) {
+                console.log('Exception: ', e);
+                return null;
+            }
+        }
+
+        function runXsl3(source, mapping) {
+            let saxonPlatform = SaxonJS.getPlatform()
+            let mappingDoc = saxonPlatform.parseXmlFromString(mapping)
+            mappingDoc._saxonBaseUri = "file:///"
+            let compiledMapping = JSON.stringify(SaxonJS.compile(mappingDoc))
+            let compiledMappingUrl = URL.createObjectURL(new Blob([compiledMapping]))
+            let sourceUrl = URL.createObjectURL(new Blob([source]));
+            let resultXml = SaxonJS.transform({
+                stylesheetLocation: compiledMappingUrl,
+                sourceLocation: sourceUrl,
+                destination: 'serialized'
+            }).principalResult
+
+            return vkbeautify.xml(resultXml)
+        }
+
+        async function upload(event) {
+            let content = await $(event.target).prop('files')[0].text()
+            event.data.editor.setValue(content)
+        }
+
+        $(document).ready(function () {
+            sourceEditor = CodeMirror(document.getElementById('sourceEditor'), generalOptions);
+            sourceEditor.on('change', _.debounce(v => processFields(), debounce));
+            sourceEditor.setSize(null, '100%')
+            $('#sourceUpload').change({editor: sourceEditor}, upload);
+
+
+            mappingEditor = CodeMirror(document.getElementById('mappingEditor'), generalOptions);
+            mappingEditor.on('change', _.debounce(v => processFields(), debounce));
+            mappingEditor.setSize(null, '100%')
+            $('#mappingUpload').change({editor: mappingEditor}, upload);
+
+            resultEditor = CodeMirror(document.getElementById('resultEditor'), generalOptions);
+            resultEditor.setSize(null, '100%')
+        });
+    </script>
+
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/codemirror.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/lint/lint.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/scroll/simplescrollbars.min.css"/>
+    <style>
+        .cEditor {
+            height: 95%;
+        }
+
+        body {
+            font-family: Calibri, Candara, Segoe, Segoe UI, Optima, Arial, sans-serif;
+            font-size: 11px;
+            display: grid;
+            grid-gap: 10px;
+            grid-template-columns: 49vw 49vw;
+            grid-template-areas: "bar bar" "source mapping" "result result";
+            grid-template-rows: 3vh 46vh 46vh;
+        }
+    </style>
+
+</head>
+<body>
+<div style="grid-area:bar; background-color: lightcoral;padding: 5px;">
+</div>
+
+<div style="grid-area:source;border: greenyellow solid 1px;">
+    <input type="file" id="sourceUpload" accept=".json, .xml"/>
+    <div class="cEditor" id="sourceEditor"></div>
+</div>
+<div style="grid-area:mapping;border: mediumpurple solid 1px;">
+    <input type="file" id="mappingUpload" accept=".xsl, .jq"/>
+    <div class="cEditor" id="mappingEditor" style="border: rosybrown solid 3px;height: 95%;"></div>
+</div>
+
+<div style="grid-area:result;border: dodgerblue solid 1px;">
+    <div class="cEditor" id="resultEditor"></div>
+</div>
+</body>
+</html>
