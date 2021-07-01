@@ -29,12 +29,12 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
 
     <script type="application/ecmascript">
-        (async function(){
+        (async function () {
             let response = await axios.get('https://data-mapper.netlify.app/saxon/2.2/SaxonJS2.js')
             let saxonJs = response.data.replace(/,xd:function\(n\)\{/, ',xd:function(n){return true;')
             let saxonJsUrl = URL.createObjectURL(new Blob([saxonJs]))
             let scriptTag = document.createElement('script')
-            scriptTag.setAttribute('src',saxonJsUrl);
+            scriptTag.setAttribute('src', saxonJsUrl);
             document.head.appendChild(scriptTag);
         })()
     </script>
@@ -212,20 +212,20 @@
         }
 
         function runXsl(source, mapping) {
-            try{
+            try {
                 let xmlParser = new DOMParser();
                 let xslParser = new DOMParser();
                 let xmlSerializer = new XMLSerializer();
                 let processor = new XSLTProcessor();
-                 xslDoc = xslParser.parseFromString(mapping, "application/xml");
-                 xmlDoc = xmlParser.parseFromString(source, "application/xml");
+                xslDoc = xslParser.parseFromString(mapping, "application/xml");
+                xmlDoc = xmlParser.parseFromString(source, "application/xml");
 
 
                 processor.importStylesheet(xslDoc);
                 let resultDoc = processor.transformToDocument(xmlDoc);
                 let resultXml = xmlSerializer.serializeToString(resultDoc);
                 return '<?xml version="1.0" encoding="UTF-8"?>\n' + vkbeautify.xml(resultXml)
-            }catch (e) {
+            } catch (e) {
                 console.log('Exception: ', e);
                 return null;
             }
