@@ -91,6 +91,7 @@
         let sourceEditor, mappingEditor, resultEditor;
 
         const generalOptions = {
+            theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'darcula' : 'default',
             lineNumbers: true,
             matchBrackets: true,
             indentUnit: 4,
@@ -249,6 +250,9 @@
 
         async function upload(event) {
             let content = await $(event.target).prop('files')[0].text()
+            if(isXml(content)){
+                content = vkbeautify.xml(content)
+            }
             event.data.editor.setValue(content)
         }
 
@@ -271,6 +275,7 @@
 
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/codemirror.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/theme/darcula.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/lint/lint.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/addon/scroll/simplescrollbars.min.css"/>
     <style>
@@ -278,33 +283,77 @@
             height: 95%;
         }
 
+        html {
+            height: 100vh;
+        }
+
         body {
             font-family: Calibri, Candara, Segoe, Segoe UI, Optima, Arial, sans-serif;
             font-size: 11px;
+            background: lightgrey;
+            margin: 0;
+            display: flex;
+            flex-flow: column;
+            height: 100vh;
+        }
+
+        .content {
+            padding: 15px;
             display: grid;
-            grid-gap: 10px;
-            grid-template-columns: 49vw 49vw;
-            grid-template-areas: "bar bar" "source mapping" "result result";
-            grid-template-rows: 3vh 46vh 46vh;
+            grid-template-columns: 50% 50%;
+            grid-template-areas: "source mapping" "result result";
+            grid-template-rows: 50% 50%;
+            flex: 1 1 auto;
+            height: calc(100vh - 110px);
+        }
+
+        .box {
+            padding: 5px;
+            border-radius: 10px;
+        }
+
+        header {
+            flex: 0 1 auto;
+            width: calc(100% - 30px);
+            height: 50px;
+            background: black;
+            color: white;
+            padding: 0 15px 0 15px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                color: #eee;
+                background: #121212;
+            }
+            header{
+                background: darkgrey;
+            }
+        }
+        .CodeMirror {
+            border-radius: 10px;
+            border: dimgrey solid 1px;
         }
     </style>
 
 </head>
 <body>
-<div style="grid-area:bar; background-color: lightcoral;padding: 5px;">
-</div>
+<header style="grid-area:bar;">
+    <h1>JQ and XSL mapper</h1>
+</header>
+<section class="content">
+    <div style="grid-area:source;" class="box">
+        <input type="file" id="sourceUpload" accept=".json, .xml"/>
+        <div class="cEditor" id="sourceEditor"></div>
+    </div>
+    <div style="grid-area:mapping;" class="box">
+        <input type="file" id="mappingUpload" accept=".xsl, .jq"/>
+        <div class="cEditor" id="mappingEditor"></div>
+    </div>
 
-<div style="grid-area:source;border: greenyellow solid 1px;">
-    <input type="file" id="sourceUpload" accept=".json, .xml"/>
-    <div class="cEditor" id="sourceEditor"></div>
-</div>
-<div style="grid-area:mapping;border: mediumpurple solid 1px;">
-    <input type="file" id="mappingUpload" accept=".xsl, .jq"/>
-    <div class="cEditor" id="mappingEditor" style="border: rosybrown solid 3px;height: 95%;"></div>
-</div>
-
-<div style="grid-area:result;border: dodgerblue solid 1px;">
-    <div class="cEditor" id="resultEditor"></div>
-</div>
+    <div style="grid-area:result;" class="box">
+        <div class="cEditor" id="resultEditor"></div>
+    </div>
+</section>
 </body>
 </html>
