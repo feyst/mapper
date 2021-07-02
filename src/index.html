@@ -251,7 +251,7 @@
 
         async function upload(event) {
             let content = await $(event.target).prop('files')[0].text()
-            if(isXml(content)){
+            if (isXml(content)) {
                 content = vkbeautify.xml(content)
             }
             event.data.editor.setValue(content)
@@ -269,11 +269,12 @@
             mappingEditor.setSize(null, '100%')
             $('#mappingUpload').change({editor: mappingEditor}, upload);
 
-            resultEditor = CodeMirror(document.getElementById('resultEditor'), generalOptions);
+            resultEditor = CodeMirror(document.getElementById('resultEditor'), {...generalOptions, ...readOnlyOptions});
             resultEditor.setSize(null, '100%')
         });
     </script>
 
+    <link rel="icon" href="icon.svg">
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.47.0/codemirror.min.css"/>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.0/theme/darcula.min.css"/>
@@ -325,7 +326,7 @@
                 color: #eee;
                 background: #121212;
             }
-            header{
+            header {
                 background: #2a2a2a;
             }
         }
