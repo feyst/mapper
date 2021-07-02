@@ -219,9 +219,8 @@
                 let xslParser = new DOMParser();
                 let xmlSerializer = new XMLSerializer();
                 let processor = new XSLTProcessor();
-                xslDoc = xslParser.parseFromString(mapping, "application/xml");
-                xmlDoc = xmlParser.parseFromString(source, "application/xml");
-
+                let xslDoc = xslParser.parseFromString(mapping, "application/xml");
+                let xmlDoc = xmlParser.parseFromString(source, "application/xml");
 
                 processor.importStylesheet(xslDoc);
                 let resultDoc = processor.transformToDocument(xmlDoc);
@@ -251,7 +250,8 @@
 
         async function upload(event) {
             let content = await $(event.target).prop('files')[0].text()
-            if (isXml(content)) {
+            let newLines = content.match(/\n/g) ?? []
+            if (isXml(content) && newLines.length <= 2) {
                 content = vkbeautify.xml(content)
             }
             event.data.editor.setValue(content)
@@ -271,6 +271,10 @@
 
             resultEditor = CodeMirror(document.getElementById('resultEditor'), {...generalOptions, ...readOnlyOptions});
             resultEditor.setSize(null, '100%')
+
+            $('#layout').on('change', (event) => {
+                $('.content').get(0).style.gridTemplateAreas = $(event.target).val()
+            })
         });
     </script>
 
@@ -293,16 +297,20 @@
             flex-flow: column;
             height: 100vh;
         }
-        header {
+        footer, header {
             flex: 0 1 auto;
             width: calc(100% - 30px);
             height: 50px;
             background: black;
             color: white;
-            padding: 0 15px 0 15px;
+            padding: 6px 15px 0 15px;
+        }
+        #layout {
+            background: black;
+            color: white;
         }
         .cEditor {
-            height: 95%;
+            height: calc(100% - 22px);
         }
         .content {
             padding: 15px;
@@ -326,7 +334,10 @@
                 color: #eee;
                 background: #121212;
             }
-            header {
+            footer, header {
+                background: #2a2a2a;
+            }
+            #layout {
                 background: #2a2a2a;
             }
         }
@@ -335,21 +346,29 @@
 </head>
 <body>
 <header style="grid-area:bar;">
-    <h1>JQ and XSL mapper</h1>
+    <h1 style="display: inline;margin-right:10px;">JQ and XSL mapper</h1>
+    <select id="layout">
+        <option value="'source mapping' 'result result'">source mapping | result</option>
+        <option value="'mapping mapping' 'source result'">mapping | source result</option>
+    </select>
 </header>
 <section class="content">
     <div style="grid-area:source;" class="box">
+        <h2 style="display:inline;">Source</h2>
         <input type="file" id="sourceUpload" accept=".json, .xml"/>
         <div class="cEditor" id="sourceEditor"></div>
     </div>
     <div style="grid-area:mapping;" class="box">
+        <h2 style="display:inline;">Mapping</h2>
         <input type="file" id="mappingUpload" accept=".xsl, .jq"/>
         <div class="cEditor" id="mappingEditor"></div>
     </div>
 
     <div style="grid-area:result;" class="box">
+        <h2 style="display:inline;">Result</h2>
         <div class="cEditor" id="resultEditor"></div>
     </div>
 </section>
+<footer> </footer>
 </body>
 </html>
