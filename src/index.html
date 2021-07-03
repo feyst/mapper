@@ -174,8 +174,10 @@
             }
             if (isXml(mapping) && 'application/xml' !== mappingEditor.getOption('mode')) {
                 setOptions(mappingEditor, {...generalOptions, ...xmlOptions})
+                $('#jqRawOption')[0].style.display = 'none'
             } else if (!isXml(mapping) && 'application/json' !== mappingEditor.getOption('mode') && mapping !== '') {
                 setOptions(mappingEditor, {...generalOptions, ...jqOptions})
+                $('#jqRawOption')[0].style.display = 'inline'
             }
             if (isXml(result) && 'application/xml' !== resultEditor.getOption('mode')) {
                 setOptions(resultEditor, {...generalOptions, ...xmlOptions, ...readOnlyOptions})
@@ -206,10 +208,18 @@
 
         function runJq(source, mapping) {
             try {
-                source = JSON.parse(source);
-                return JSON.stringify(jq.json(source, mapping), null, 4);
+                let result;
+                if($('#jqRaw')[0].checked){
+                    result = jq.raw(source, mapping, ['-r'])
+                }else{
+                    result = jq.raw(source, mapping)
+                }
+                try{
+                    result = vkbeautify.json(result)
+                } catch (e) {}
+                return result
             } catch (e) {
-                return null;
+                return '';
             }
         }
 
@@ -253,6 +263,11 @@
             let newLines = content.match(/\n/g) ?? []
             if (isXml(content) && newLines.length <= 2) {
                 content = vkbeautify.xml(content)
+            }
+            if (!isXml() && newLines.length <= 2) {
+                try{
+                    content = vkbeautify.json(content)
+                }catch (e) {}
             }
             event.data.editor.setValue(content)
         }
@@ -365,7 +380,11 @@
     </div>
 
     <div style="grid-area:result;" class="box">
-        <h2 style="display:inline;">Result</h2>
+        <h2 style="display:inline;margin-right: 10px;">Result</h2>
+        <label style="display:none;" id="jqRawOption">
+            <input type="checkbox" id="jqRaw" onchange="processFields()"/>
+            RAW output
+        </label>
         <div class="cEditor" id="resultEditor"></div>
     </div>
 </section>
