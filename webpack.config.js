@@ -6,6 +6,7 @@ module.exports = (env, argv) => {
     let config = {
         entry: {
             main: './src/index.js',
+            xsl: './lib/saxon/2.2/SaxonJS2.js',
         },
         mode: 'development',
         output: {

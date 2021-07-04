@@ -26,6 +26,6 @@
   },
   "scripts": {
     "build": "webpack",
-    "build-production": "webpack --mode=production"
+    "build-production": "npm install && webpack --mode=production"
   }
 }

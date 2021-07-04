@@ -276,15 +276,6 @@ function updateNetworkStatus (status) {
 }
 
 $(document).ready(function () {
-    (async function () {
-        let response = await axios.get('https://data-mapper.netlify.app/saxon/2.2/SaxonJS2.js')
-        let saxonJs = response.data.replace(/,xd:function\(n\)\{/, ',xd:function(n){return true;')
-        let saxonJsUrl = URL.createObjectURL(new Blob([saxonJs]))
-        let scriptTag = document.createElement('script')
-        scriptTag.setAttribute('src', saxonJsUrl);
-        document.head.appendChild(scriptTag);
-    })()
-
     sourceEditor = CodeMirror(document.getElementById('sourceEditor'), generalOptions);
     sourceEditor.on('change', _.debounce(v => processFields(), debounce));
     sourceEditor.setSize(null, '100%')
@@ -302,6 +293,9 @@ $(document).ready(function () {
     $('#layout').on('change', (event) => {
         $('.content').get(0).style.gridTemplateAreas = $(event.target).val()
     })
+
+    $('#jqRaw').on('change', () => processFields())
+
     updateNetworkStatus(navigator.onLine)
     window.addEventListener("online", () => {
         updateNetworkStatus(true);
@@ -315,7 +309,7 @@ $(document).ready(function () {
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js').then(registration => {
-            // console.log('SW registered: ', registration);
+            console.log('SW registered: ', registration);
         }).catch(registrationError => {
             console.log('SW registration failed: ', registrationError);
         });
