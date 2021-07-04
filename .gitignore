@@ -1,2 +1,5 @@
 .idea
 *.Identifier
+/node_modules
+/dist
+!/dist/.gitkeep

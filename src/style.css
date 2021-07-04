@@ -1,0 +1,63 @@
+html {
+    height: 100vh;
+}
+body {
+    font-family: Calibri, Candara, Segoe, Segoe UI, Optima, Arial, sans-serif;
+    font-size: 11px;
+    background: lightgrey;
+    margin: 0;
+    display: flex;
+    flex-flow: column;
+    height: 100vh;
+}
+footer, header {
+    flex: 0 1 auto;
+    width: calc(100% - 30px);
+    height: 50px;
+    background: black;
+    color: white;
+    padding: 6px 15px 0 15px;
+}
+#layout {
+    background: black;
+    color: white;
+}
+#networkStatus{
+    float:right;
+    margin:7px;
+    border-radius:50%;
+    width:15px;
+    height:15px;
+}
+.cEditor {
+    height: calc(100% - 22px);
+}
+.content {
+    padding: 15px;
+    display: grid;
+    grid-template-columns: 50% 50%;
+    grid-template-areas: "source mapping" "result result";
+    grid-template-rows: 50% 50%;
+    flex: 1 1 auto;
+    height: calc(100vh - 110px);
+}
+.box {
+    padding: 5px;
+    border-radius: 10px;
+}
+.CodeMirror {
+    border-radius: 10px;
+    border: dimgrey solid 1px;
+}
+@media (prefers-color-scheme: dark) {
+    body {
+        color: #eee;
+        background: #121212;
+    }
+    footer, header {
+        background: #2a2a2a;
+    }
+    #layout {
+        background: #2a2a2a;
+    }
+}
