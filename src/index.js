@@ -4,8 +4,8 @@ import CodeMirror from 'codemirror/lib/codemirror'
 import 'codemirror/mode/xml/xml'
 import 'codemirror/mode/javascript/javascript'
 import 'codemirror/addon/mode/simple'
-import 'jshint/dist/jshint'
-import jsonlint from 'jsonlint/web/jsonlint'
+import jsonlint from 'jsonlint-mod/web/jsonlint'
+window.jsonlint = jsonlint
 import 'codemirror/addon/lint/lint'
 import 'codemirror/addon/hint/javascript-hint'
 import 'codemirror/addon/lint/javascript-lint'
@@ -20,15 +20,12 @@ import 'codemirror/addon/edit/matchbrackets'
 import 'codemirror/addon/edit/closebrackets'
 import 'codemirror/addon/scroll/simplescrollbars'
 import vkbeautify from 'vkbeautify'
-import axios from 'axios'
 
 import 'codemirror/lib/codemirror.css'
 import 'codemirror/theme/darcula.css'
 import 'codemirror/addon/lint/lint.css'
 import 'codemirror/addon/scroll/simplescrollbars.css'
 import './style.css'
-
-window.jsonlint = jsonlint
 
 const debounce = 600;
 
