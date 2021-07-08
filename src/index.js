@@ -100,6 +100,15 @@ const xmlOptions = {
     autoCloseTags: true,
     matchTags: true,
 };
+const xslOptions = {
+    ... xmlOptions,
+    ... {
+        lint: {
+            'getAnnotations': xslValidator,
+            async: true,
+        }
+    }
+}
 const jsonOptions = {
     mode: "application/json",
     autoCloseBrackets: true,
@@ -150,6 +159,37 @@ function jqValidator(text, updateLinting) {
     updateLinting(errors)
 }
 
+function xslValidator(text, updateLinting) {
+    let errors = [];
+    try {
+        runXsl3(sourceEditor.getValue(), mappingEditor.getValue())
+    } catch (exception) {
+        let lineNumber = exception.message.match(/(?<=on line )\d+(?= )/m)
+        if (lineNumber) {
+            lineNumber = lineNumber[0]
+        } else {
+            lineNumber = 1
+        }
+        errors = [
+            {
+                from: {
+                    line: lineNumber,
+                    ch: 0,
+                    sticky: null,
+                },
+                to: {
+                    line: lineNumber,
+                    ch: 999,
+                    sticky: null,
+                },
+                message: exception.message,
+                severity: 'error',
+            }
+        ]
+    }
+    updateLinting(errors)
+}
+
 function setOptions(editor, options) {
     Object.entries(options).forEach(option => editor.setOption(option[0], option[1]))
 }
@@ -165,7 +205,7 @@ function setEditorOptions(source, mapping, result) {
         setOptions(sourceEditor, {...generalOptions, ...jsonOptions})
     }
     if (isXml(mapping) && 'application/xml' !== mappingEditor.getOption('mode')) {
-        setOptions(mappingEditor, {...generalOptions, ...xmlOptions})
+        setOptions(mappingEditor, {...generalOptions, ...xslOptions})
         $('#jqRawOption')[0].style.display = 'none'
     } else if (!isXml(mapping) && 'application/json' !== mappingEditor.getOption('mode') && mapping !== '') {
         setOptions(mappingEditor, {...generalOptions, ...jqOptions})
@@ -188,7 +228,9 @@ async function processFields() {
     }
 
     if (isXml(source) && isXml(mapping)) {
-        result = runXsl3(source, mapping) ?? ''
+        try{
+            result = await runXsl3(source, mapping) ?? ''
+        }catch (e) {}
     }
 
     setEditorOptions(source, mapping, result)
@@ -306,7 +348,6 @@ $(document).ready(function () {
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js').then(registration => {
-            console.log('SW registered: ', registration);
         }).catch(registrationError => {
             console.log('SW registration failed: ', registrationError);
         });
