@@ -1,6 +1,11 @@
+/*
+*********************            ELEMENTS            *********************
+*/
+
 html {
     height: 100vh;
 }
+
 body {
     font-family: Calibri, Candara, Segoe, Segoe UI, Optima, Arial, sans-serif;
     font-size: 11px;
@@ -10,6 +15,7 @@ body {
     flex-flow: column;
     height: 100vh;
 }
+
 footer, header {
     flex: 0 1 auto;
     width: calc(100% - 30px);
@@ -18,20 +24,55 @@ footer, header {
     color: white;
     padding: 6px 15px 0 15px;
 }
+
+header {
+    grid-area: bar;
+}
+
+h1, h2 {
+    display: inline;
+    margin-right: 10px;
+}
+
 #layout {
     background: black;
     color: white;
 }
-#networkStatus{
-    float:right;
-    margin:7px;
-    border-radius:50%;
-    width:15px;
-    height:15px;
+
+/*
+*********************            IDS            *********************
+*/
+#networkStatus {
+    float: right;
+    margin: 7px;
+    border-radius: 50%;
+    width: 15px;
+    height: 15px;
 }
+
+#source {
+    grid-area: source;
+}
+
+#mapping {
+    grid-area:mapping;
+}
+
+#result {
+    grid-area:result;
+}
+
+#jqRawOption {
+    display:none;
+}
+
+/*
+*********************            CLASSES            *********************
+*/
 .cEditor {
     height: calc(100% - 22px);
 }
+
 .content {
     padding: 15px;
     display: grid;
@@ -41,22 +82,30 @@ footer, header {
     flex: 1 1 auto;
     height: calc(100vh - 110px);
 }
+
 .box {
     padding: 5px;
     border-radius: 10px;
 }
+
 .CodeMirror {
     border-radius: 10px;
     border: dimgrey solid 1px;
 }
+
+/*
+*********************            DARK MODE            *********************
+*/
 @media (prefers-color-scheme: dark) {
     body {
         color: #eee;
         background: #121212;
     }
+
     footer, header {
         background: #2a2a2a;
     }
+
     #layout {
         background: #2a2a2a;
     }
