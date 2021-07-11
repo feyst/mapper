@@ -2,7 +2,8 @@ const path = require('path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const WorkboxPlugin = require('workbox-webpack-plugin')
 const WebpackPwaManifest = require('webpack-pwa-manifest')
-const { ModifySourcePlugin } = require('modify-source-webpack-plugin');
+const {ModifySourcePlugin} = require('modify-source-webpack-plugin');
+const CopyPlugin = require("copy-webpack-plugin");
 
 module.exports = (env, argv) => {
     let config = {
@@ -55,6 +56,14 @@ module.exports = (env, argv) => {
                     },
                 ]
             }),
+            new CopyPlugin({
+                patterns: [
+                    {
+                        from: "node_modules/jq-web/jq.wasm.wasm",
+                        to: "jq.wasm.wasm"
+                    },
+                ],
+            }),
         ],
         optimization: {
             runtimeChunk: 'single',
@@ -84,9 +93,22 @@ module.exports = (env, argv) => {
                 },
             ],
         },
+        resolve: {
+            fallback: {
+                crypto: false,
+                stream: false,
+                fs: false,
+                util: false,
+                path: false,
+            }
+        },
+        devServer: {
+            contentBase: path.join(__dirname, 'dist'),
+            port: 8001,
+        },
     }
 
-    if('production' === argv.mode){
+    if ('production' === argv.mode) {
         config.mode = 'production'
     }
 

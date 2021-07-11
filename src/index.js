@@ -1,11 +1,12 @@
 import $ from 'jquery'
 import _ from 'underscore'
+import jq from 'jq-web/jq.wasm'
+
 import CodeMirror from 'codemirror/lib/codemirror'
 import 'codemirror/mode/xml/xml'
 import 'codemirror/mode/javascript/javascript'
 import 'codemirror/addon/mode/simple'
 import jsonlint from 'jsonlint-mod/web/jsonlint'
-window.jsonlint = jsonlint
 import 'codemirror/addon/lint/lint'
 import 'codemirror/addon/hint/javascript-hint'
 import 'codemirror/addon/lint/javascript-lint'
@@ -26,6 +27,8 @@ import 'codemirror/theme/darcula.css'
 import 'codemirror/addon/lint/lint.css'
 import 'codemirror/addon/scroll/simplescrollbars.css'
 import './style.css'
+
+window.jsonlint = jsonlint
 
 const debounce = 600;
 
@@ -101,8 +104,8 @@ const xmlOptions = {
     matchTags: true,
 };
 const xslOptions = {
-    ... xmlOptions,
-    ... {
+    ...xmlOptions,
+    ...{
         lint: {
             'getAnnotations': xslValidator,
             async: true,
@@ -137,7 +140,7 @@ function jqValidator(text, updateLinting) {
             let lineNumber = error.match(/(?<=, line )\d+(?=:$)/m)
             if (lineNumber) {
                 lineNumber = lineNumber[0]
-            }else{
+            } else {
                 lineNumber = 2
             }
             return {
@@ -164,11 +167,17 @@ function xslValidator(text, updateLinting) {
     try {
         runXsl3(sourceEditor.getValue(), mappingEditor.getValue())
     } catch (exception) {
-        let lineNumber = exception.message.match(/(?<=on line )\d+(?= )/m)
-        if (lineNumber) {
-            lineNumber = lineNumber[0]
-        } else {
-            lineNumber = 1
+        let lineNumber = 0
+        let searchLineNumber = exception.message.match(/(?<=on line )\d+(?= )/m)
+        if ( searchLineNumber && !exception.xsltModule) {
+            lineNumber = parseInt(searchLineNumber[0]) - 1
+        }
+        let searchError = exception.message.match(/(?<= in \/ {).+(?=}: )/)
+        if (searchError) {
+            let searchErrorInText = text.match(new RegExp(filterForRegex(searchError[0])))
+            if (searchErrorInText) {
+                lineNumber = lineNumberOfIndex(text, searchErrorInText.index) - 1
+            }
         }
         errors = [
             {
@@ -188,6 +197,15 @@ function xslValidator(text, updateLinting) {
         ]
     }
     updateLinting(errors)
+}
+function filterForRegex(str) {
+    return str.replace(/([.?*+^$[\]\\(){}|-])/g, "\\$1");
+}
+
+function lineNumberOfIndex(text, index){
+    let beforeText = text.substr(0, index)
+
+    return beforeText.split('\n').length
 }
 
 function setOptions(editor, options) {
@@ -228,9 +246,10 @@ async function processFields() {
     }
 
     if (isXml(source) && isXml(mapping)) {
-        try{
+        try {
             result = await runXsl3(source, mapping) ?? ''
-        }catch (e) {}
+        } catch (e) {
+        }
     }
 
     setEditorOptions(source, mapping, result)
@@ -243,14 +262,15 @@ async function processFields() {
 async function runJq(source, mapping) {
     try {
         let result;
-        if($('#jqRaw')[0].checked){
+        if ($('#jqRaw')[0].checked) {
             result = await jq.promised.raw(JSON.stringify(JSON.parse(source)), mapping, ['-r'])
-        }else{
+        } else {
             result = JSON.stringify(await jq.promised.json(JSON.parse(source), mapping))
         }
-        try{
+        try {
             result = vkbeautify.json(result)
-        } catch (e) {}
+        } catch (e) {
+        }
         return result
     } catch (e) {
         return '';
@@ -279,6 +299,7 @@ function runXsl(source, mapping) {
 function runXsl3(source, mapping) {
     let saxonPlatform = SaxonJS.getPlatform()
     let mappingDoc = saxonPlatform.parseXmlFromString(mapping)
+    window.mappingDoc = mappingDoc
     mappingDoc._saxonBaseUri = "file:///"
     let compiledMapping = JSON.stringify(SaxonJS.compile(mappingDoc))
     let compiledMappingUrl = URL.createObjectURL(new Blob([compiledMapping]))
@@ -299,17 +320,18 @@ async function upload(event) {
         content = vkbeautify.xml(content)
     }
     if (!isXml() && newLines.length <= 2) {
-        try{
+        try {
             content = vkbeautify.json(content)
-        }catch (e) {}
+        } catch (e) {
+        }
     }
     event.data.editor.setValue(content)
 }
 
-function updateNetworkStatus (status) {
+function updateNetworkStatus(status) {
     if (status) {
         $('#networkStatus')[0].style.background = 'green'
-    }else{
+    } else {
         $('#networkStatus')[0].style.background = 'red'
     }
 }
