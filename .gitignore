@@ -3,3 +3,4 @@
 /node_modules
 /dist
 !/dist/.gitkeep
+/lib/saxon/saxon-js

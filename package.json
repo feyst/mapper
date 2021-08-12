@@ -29,7 +29,8 @@
     "workbox-webpack-plugin": "^6.1.5"
   },
   "scripts": {
+    "install-saxon": "cd lib/saxon && [ -f saxon-js/SaxonJS2.js ] || (wget https://www.saxonica.com/saxon-js/download/Saxon-JS-2.2.zip && shasum -c saxon-js.sha1 && unzip Saxon-JS-2.2.zip && rm Saxon-JS-2.2.zip)",
     "build": "webpack",
-    "build-production": "npm install && webpack --mode=production"
+    "build-production": "npm run install-saxon && npm install && webpack --mode=production"
   }
 }
