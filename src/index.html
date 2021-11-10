@@ -4,8 +4,8 @@
     <title>JQ and XSL mapper</title>
     <link rel="icon" href="icon.svg">
 
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Tool to map xml files and json files to xml files or json files using JQ and XSLT 3.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta name="description" content="Tool to map xml files and json files to xml files or json files using JQ and XSLT 3.0"/>
 </head>
 <body>
 <header>
@@ -14,6 +14,10 @@
         <option value="'source mapping' 'result result'">source mapping | result</option>
         <option value="'mapping mapping' 'source result'">mapping | source result</option>
     </select>
+    &nbsp;
+    <label><input type="checkbox" id="autoRun" checked> Auto run</label>
+    &nbsp;
+    <button id="run" style="display: none;">Run</button>
     <div id="networkStatus"/>
 </header>
 <section class="content">
@@ -34,6 +38,9 @@
             <input type="checkbox" id="jqRaw"/>
             RAW output
         </label>
+        &nbsp;
+        <button id="downloadResult">Download</button>
+        <div class="inProgress"></div>
         <div class="cEditor" id="resultEditor"></div>
     </div>
 </section>

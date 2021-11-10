@@ -23,37 +23,12 @@ module.exports = (env, argv) => {
             new HtmlWebpackPlugin({
                 template: 'src/index.html'
             }),
-            new WorkboxPlugin.GenerateSW({
-                // these options encourage the ServiceWorkers to get in there fast
-                // and not allow any straggling "old" SWs to hang around
-                clientsClaim: true,
-                skipWaiting: true,
-                maximumFileSizeToCacheInBytes: 99999999999999,
-            }),
             new ModifySourcePlugin({
                 rules: [
                     {
                         test: /SaxonJS2\.js$/,
                         modify: src => src.replace(/,xd:function\(n\)\{return/, ',xd:function(n){return true;return')
                     }
-                ]
-            }),
-            new WebpackPwaManifest({
-                publicPath: '/',
-                name: 'JQ and XSL mapper',
-                short_name: 'Data mapper',
-                description: 'A tool to map xml and json using JQ and XSL',
-                background_color: '#ffffff',
-                theme_color: '#ffffff',
-                icons: [
-                    {
-                        src: path.resolve('src/icon.svg'),
-                        sizes: [150]
-                    },
-                    {
-                        src: path.resolve('src/icon-512.png'),
-                        sizes: [512]
-                    },
                 ]
             }),
             new CopyPlugin({
@@ -103,14 +78,15 @@ module.exports = (env, argv) => {
             }
         },
         devServer: {
-            contentBase: path.join(__dirname, 'dist'),
-            port: 8001,
-            headers: {
-                'X-Frame-Options': 'DENY',
-                'X-XSS-Protection': '1; mode=block',
-                'Content-Security-Policy': "default-src 'self';script-src 'self' 'unsafe-eval';style-src 'unsafe-inline'; img-src 'self' data:;connect-src 'self' blob:;",
-                'X-Content-Type-Options': 'nosniff',
-                'Referrer-Policy': 'no-referrer',
+            static: {
+                directory:path.join(__dirname, 'dist'),
+                watch: true,
+            },
+            watchFiles: {
+                paths: ['src/index.html'],
+                options: {
+                    usePolling: false,
+                },
             }
         },
     }
@@ -119,5 +95,35 @@ module.exports = (env, argv) => {
         config.mode = 'production'
     }
 
-    return config
+    if(true !== argv.env.WEBPACK_SERVE) {
+        config.plugins.push(
+            new WorkboxPlugin.GenerateSW({
+                // these options encourage the ServiceWorkers to get in there fast
+                // and not allow any straggling "old" SWs to hang around
+                clientsClaim: true,
+                skipWaiting: true,
+                maximumFileSizeToCacheInBytes: 99999999999999,
+            }),
+            new WebpackPwaManifest({
+                publicPath: '/',
+                name: 'JQ and XSL mapper',
+                short_name: 'Data mapper',
+                description: 'A tool to map xml and json using JQ and XSL',
+                background_color: '#ffffff',
+                theme_color: '#ffffff',
+                icons: [
+                    {
+                        src: path.resolve('src/icon.svg'),
+                        sizes: [150]
+                    },
+                    {
+                        src: path.resolve('src/icon-512.png'),
+                        sizes: [512]
+                    },
+                ]
+            })
+        );
+    }
+
+    return config;
 };

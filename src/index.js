@@ -1,6 +1,7 @@
 import $ from 'jquery'
 import _ from 'underscore'
 import jq from 'jq-web/jq.wasm'
+import {saveAs} from 'file-saver';
 
 import CodeMirror from 'codemirror/lib/codemirror'
 import 'codemirror/mode/xml/xml'
@@ -169,7 +170,7 @@ function xslValidator(text, updateLinting) {
     } catch (exception) {
         let lineNumber = 0
         let searchLineNumber = exception.message.match(/(?<=on line )\d+(?= )/m)
-        if ( searchLineNumber && !exception.xsltModule) {
+        if (searchLineNumber && !exception.xsltModule) {
             lineNumber = parseInt(searchLineNumber[0]) - 1
         }
         let searchError = exception.message.match(/(?<= in \/ {).+(?=}: )/)
@@ -198,11 +199,12 @@ function xslValidator(text, updateLinting) {
     }
     updateLinting(errors)
 }
+
 function filterForRegex(str) {
     return str.replace(/([.?*+^$[\]\\(){}|-])/g, "\\$1");
 }
 
-function lineNumberOfIndex(text, index){
+function lineNumberOfIndex(text, index) {
     let beforeText = text.substr(0, index)
 
     return beforeText.split('\n').length
@@ -236,27 +238,38 @@ function setEditorOptions(source, mapping, result) {
     }
 }
 
+async function autoProcess() {
+    if ($('#autoRun').get(0).checked) {
+        return await processFields();
+    }
+}
+
 async function processFields() {
-    let result = '';
-    let source = sourceEditor.getValue()
-    let mapping = mappingEditor.getValue()
+    try{
+        $('#result .inProgress').show();
+        let result = '';
+        let source = sourceEditor.getValue()
+        let mapping = mappingEditor.getValue()
 
-    if (!isXml(source) && !isXml(mapping)) {
-        result = await runJq(source, mapping) ?? ''
-    }
-
-    if (isXml(source) && isXml(mapping)) {
-        try {
-            result = await runXsl3(source, mapping) ?? ''
-        } catch (e) {
+        if (!isXml(source) && !isXml(mapping)) {
+            result = await runJq(source, mapping) ?? ''
         }
+
+        if (isXml(source) && isXml(mapping)) {
+            try {
+                result = await runXsl3(source, mapping) ?? ''
+            } catch (e) {
+            }
+        }
+
+        setEditorOptions(source, mapping, result)
+
+        let scroll = resultEditor.getScrollInfo()
+        resultEditor.setValue(result)
+        resultEditor.scrollTo(scroll.left, scroll.top)
+    }catch (e) {
     }
-
-    setEditorOptions(source, mapping, result)
-
-    let scroll = resultEditor.getScrollInfo()
-    resultEditor.setValue(result)
-    resultEditor.scrollTo(scroll.left, scroll.top)
+    $('#result .inProgress').hide();
 }
 
 async function runJq(source, mapping) {
@@ -325,6 +338,12 @@ async function upload(event) {
         } catch (e) {
         }
     }
+
+    if (content.split("\n").length > 1000) {
+        $('#autoRun').prop('checked', false);
+        $('#autoRun').trigger('change');
+    }
+
     event.data.editor.setValue(content)
 }
 
@@ -336,15 +355,26 @@ function updateNetworkStatus(status) {
     }
 }
 
+function downloadResult() {
+    let content = resultEditor.getValue();
+    if (isXml(content)) {
+        let blob = new Blob([content], {type: "application/xml;charset=utf-8"});
+        saveAs(blob, 'Result.xml');
+        return;
+    }
+    let blob = new Blob([content], {type: "application/json;charset=utf-8"});
+    saveAs(blob, 'Result.json');
+}
+
 $(document).ready(function () {
     sourceEditor = CodeMirror(document.getElementById('sourceEditor'), generalOptions);
-    sourceEditor.on('change', _.debounce(v => processFields(), debounce));
+    sourceEditor.on('change', _.debounce(v => autoProcess(), debounce));
     sourceEditor.setSize(null, '100%')
     $('#sourceUpload').change({editor: sourceEditor}, upload);
 
 
     mappingEditor = CodeMirror(document.getElementById('mappingEditor'), generalOptions);
-    mappingEditor.on('change', _.debounce(v => processFields(), debounce));
+    mappingEditor.on('change', _.debounce(v => autoProcess(), debounce));
     mappingEditor.setSize(null, '100%')
     $('#mappingUpload').change({editor: mappingEditor}, upload);
 
@@ -355,7 +385,20 @@ $(document).ready(function () {
         $('.content').get(0).style.gridTemplateAreas = $(event.target).val()
     })
 
-    $('#jqRaw').on('change', () => processFields())
+    $('#jqRaw').on('change', () => autoProcess())
+
+    $('#autoRun').change(function () {
+        if (this.checked) {
+            $('#run').hide()
+            processFields();
+        } else {
+            $('#run').show()
+        }
+    });
+
+    $('#run').click(processFields);
+
+    $('#downloadResult').click(downloadResult);
 
     updateNetworkStatus(navigator.onLine)
     window.addEventListener("online", () => {
