@@ -125,7 +125,7 @@ const jqOptions = {
     },
 }
 const readOnlyOptions = {
-    readOnly: 'nocursor',
+    readOnly: true,
     lint: false,
 }
 
