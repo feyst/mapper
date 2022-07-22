@@ -252,6 +252,7 @@ async function processFields() {
         let mapping = mappingEditor.getValue()
 
         if (!isXml(source) && !isXml(mapping)) {
+            source = jqAutoSlurp(source);
             result = await runJq(source, mapping) ?? ''
         }
 
@@ -270,6 +271,31 @@ async function processFields() {
     }catch (e) {
     }
     $('#result .inProgress').hide();
+}
+
+function jqAutoSlurp(source) {
+    try {
+        JSON.parse(source);
+
+        return source;
+    } catch (syntaxError) {
+        const starts = ['{', '[', '"'];
+        const ends = ['}', ']', '"'];
+        const lines = source.split(/\r?\n/).filter(v => 0 !== v.length);
+        const start = lines[0].substr(0, 1);
+        if (lines.length > 1 && starts.includes(start)) {
+            const end = ends[starts.findIndex(v => v === start)];
+            for (let x in lines) {
+                if (!lines[x].startsWith(start) || !lines[x].trim().endsWith(end)) {
+                    return source;
+                }
+            }
+
+            source = '[' + lines.join(',') + ']';
+        }
+    }
+
+    return source;
 }
 
 async function runJq(source, mapping) {
