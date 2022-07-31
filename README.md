@@ -10,3 +10,9 @@ npm install
 npm run install-saxon
 webpack serve
 ```
+
+## Hooks
+In order to use the hooks for this repo use:
+```shell
+git config core.hooksPath .githooks
+```

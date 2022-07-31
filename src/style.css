@@ -29,7 +29,7 @@ header {
     grid-area: bar;
 }
 
-h1, h2 {
+h1, h2, h5 {
     display: inline;
     margin-right: 10px;
 }

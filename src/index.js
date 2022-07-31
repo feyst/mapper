@@ -434,6 +434,8 @@ $(document).ready(function () {
     window.addEventListener("offline", () => {
         updateNetworkStatus(false);
     });
+
+    $('#version').text('v' + __VERSION__);
 });
 
 if ('serviceWorker' in navigator) {

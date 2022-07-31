@@ -4,6 +4,10 @@ const WorkboxPlugin = require('workbox-webpack-plugin')
 const WebpackPwaManifest = require('webpack-pwa-manifest')
 const {ModifySourcePlugin} = require('modify-source-webpack-plugin');
 const CopyPlugin = require("copy-webpack-plugin");
+const fs = require('fs');
+const webpack = require('webpack');
+
+const packageJson = JSON.parse(fs.readFileSync('package.json'));
 
 module.exports = (env, argv) => {
     let config = {
@@ -38,6 +42,9 @@ module.exports = (env, argv) => {
                         to: "jq.wasm.wasm"
                     },
                 ],
+            }),
+            new webpack.DefinePlugin({
+                __VERSION__: packageJson.version,
             }),
         ],
         optimization: {
