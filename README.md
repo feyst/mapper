@@ -16,9 +16,3 @@ In order to use the hooks for this repo use:
 ```shell
 git config core.hooksPath .githooks
 ```
-
-## Hooks
-In order to use the hooks for this repo use:
-```shell
-git config core.hooksPath .githooks
-```
