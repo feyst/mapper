@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Update version package.json
-cat package.json | jq --arg version "$(($(git rev-list --count HEAD) + 1))" '.version=$version' > package.json
-git add package.json
