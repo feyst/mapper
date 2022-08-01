@@ -435,7 +435,7 @@ $(document).ready(function () {
         updateNetworkStatus(false);
     });
 
-    $('#version').text('v' + __VERSION__);
+    $('#version').text('v' + VERSION);
 });
 
 if ('serviceWorker' in navigator) {
