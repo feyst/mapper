@@ -4,6 +4,6 @@ set -euo pipefail
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "$YELLOW*** COMMIT-MSG ***$NC"
+echo -e "$YELLOW*** PRE-COMMIT ***$NC"
 
 ./.githooks/up-version.sh "$@"
