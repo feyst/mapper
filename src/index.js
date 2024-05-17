@@ -343,13 +343,18 @@ function runXsl3(source, mapping) {
     let compiledMapping = JSON.stringify(SaxonJS.compile(mappingDoc))
     let compiledMappingUrl = URL.createObjectURL(new Blob([compiledMapping]))
     let sourceUrl = URL.createObjectURL(new Blob([source]));
-    let resultXml = SaxonJS.transform({
+    let result = SaxonJS.transform({
         stylesheetLocation: compiledMappingUrl,
         sourceLocation: sourceUrl,
-        destination: 'serialized'
+        destination: 'serialized',
+        sourceType: source.startsWith('{') || source.startsWith('[') ? 'json' : 'xml',
     }).principalResult
 
-    return vkbeautify.xml(resultXml)
+    if (result.startsWith('{') || result.startsWith('[')) {
+        return JSON.stringify(JSON.parse(result), null, 4)
+    }
+
+    return vkbeautify.xml(result)
 }
 
 async function upload(event) {

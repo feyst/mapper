@@ -1,6 +1,6 @@
 {
   "name": "mapper",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "description": "Simple one-pager to map both xsl and jq to and from both xml and json",
   "private": true,
   "dependencies": {
@@ -29,7 +29,7 @@
     "workbox-webpack-plugin": "^6.1.5"
   },
   "scripts": {
-    "install-saxon": "cd lib/saxon && [ -f saxon-js/SaxonJS2.js ] || (wget https://www.saxonica.com/saxon-js/download/Saxon-JS-2.2.zip && shasum -c saxon-js.sha1 && unzip Saxon-JS-2.2.zip && rm Saxon-JS-2.2.zip)",
+    "install-saxon": "cd lib/saxon && [ -f saxon-js/SaxonJS2.js ] || (wget https://downloads.saxonica.com/SaxonJS/2/SaxonJS-2.6.zip && shasum -c saxon-js.sha1 && unzip SaxonJS-2.6.zip && rm SaxonJS-2.6.zip)",
     "build": "webpack",
     "build-production": "npm run install-saxon && npm install && webpack --mode=production"
   }
