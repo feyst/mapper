@@ -350,7 +350,7 @@ function runXsl3(source, mapping) {
         sourceType: source.startsWith('{') || source.startsWith('[') ? 'json' : 'xml',
     }).principalResult
 
-    if (result.startsWith('{') || result.startsWith('[')) {
+    if (result.trim().startsWith('{') || result.trim().startsWith('[')) {
         return JSON.stringify(JSON.parse(result), null, 4)
     }
 
