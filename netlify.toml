@@ -8,7 +8,7 @@
   [headers.values]
     X-Frame-Options = "DENY"
     X-XSS-Protection = "1; mode=block"
-    Content-Security-Policy = "default-src 'self';script-src 'self' 'unsafe-eval';style-src 'unsafe-inline'; img-src 'self' data:;connect-src 'self' blob:;"
+    Content-Security-Policy = "default-src 'self';script-src 'self' 'unsafe-eval';style-src 'unsafe-inline'; img-src 'self' data:;connect-src 'self' blob: https://52lf3ti6pjqfvxqabng6egeyf40nhjkw.lambda-url.eu-west-1.on.aws/;"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy	= "no-referrer"
 
