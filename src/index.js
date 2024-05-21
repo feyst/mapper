@@ -215,7 +215,7 @@ function setOptions(editor, options) {
 }
 
 function isXml(string) {
-    return null != string && string.match(/^</)
+    return null != string && string.trim().match(/^</)
 }
 
 function setEditorOptions(source, mapping, result) {
@@ -239,13 +239,59 @@ function setEditorOptions(source, mapping, result) {
 }
 
 async function autoProcess() {
+    const mapping = mappingEditor.getValue()
+
+    if (sourceEditor.getValue().length > 5 && mapping.length > 5 && ((isXml(mapping) && !mapping.includes('<xsl:stylesheet')) || !isXml(mapping))) {
+        $('#autoMapButton').show()
+    } else {
+        $('#autoMapButton').hide()
+    }
+
     if ($('#autoRun').get(0).checked) {
         return await processFields();
     }
 }
 
+async function autoMap() {
+    try {
+        $('#mappingLoading').show()
+        $('#mappingUpload').hide()
+
+        const response = await fetch('https://52lf3ti6pjqfvxqabng6egeyf40nhjkw.lambda-url.eu-west-1.on.aws/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                source: sourceEditor.getValue(),
+                template: mappingEditor.getValue(),
+            })
+        })
+
+        const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+
+        mappingEditor.setValue('')
+
+        while (true) {
+            const {value, done} = await reader.read();
+            if (done) break;
+            mappingEditor.setValue(mappingEditor.getValue() + value)
+            document.querySelector('#mappingEditor div .CodeMirror-scroll').scrollTo(0, 999999)
+        }
+
+        mappingEditor.setValue(vkbeautify.xml(mappingEditor.getValue()))
+        document.querySelector('#mappingEditor div .CodeMirror-scroll').scrollTo(0, 999999)
+
+    } catch (e) {
+        console.log(e)
+    }
+    $('#mappingLoading').hide()
+    $('#mappingUpload').show()
+
+}
+
 async function processFields() {
-    try{
+    try {
         $('#result .inProgress').show();
         let result = '';
         let source = sourceEditor.getValue()
@@ -268,7 +314,7 @@ async function processFields() {
         let scroll = resultEditor.getScrollInfo()
         resultEditor.setValue(result)
         resultEditor.scrollTo(scroll.left, scroll.top)
-    }catch (e) {
+    } catch (e) {
     }
     $('#result .inProgress').hide();
 }
@@ -441,6 +487,8 @@ $(document).ready(function () {
     });
 
     $('#version').text('v' + VERSION);
+
+    $('#autoMapButton').click(autoMap)
 });
 
 if ('serviceWorker' in navigator) {
