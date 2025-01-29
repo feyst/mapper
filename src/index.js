@@ -235,6 +235,8 @@ function setEditorOptions(source, mapping, result) {
         setOptions(resultEditor, {...generalOptions, ...xmlOptions, ...readOnlyOptions})
     } else if (!isXml(result) && 'application/json' !== resultEditor.getOption('mode')) {
         setOptions(resultEditor, {...generalOptions, ...jsonOptions, ...readOnlyOptions})
+    } else {
+        setOptions(resultEditor, {...generalOptions, ...readOnlyOptions})
     }
 }
 
@@ -302,7 +304,7 @@ async function processFields() {
             result = await runJq(source, mapping) ?? ''
         }
 
-        if (isXml(source) && isXml(mapping)) {
+        if (isXml(mapping)) {
             try {
                 result = await runXsl3(source, mapping) ?? ''
             } catch (e) {
@@ -384,23 +386,49 @@ function runXsl(source, mapping) {
 function runXsl3(source, mapping) {
     let saxonPlatform = SaxonJS.getPlatform()
     let mappingDoc = saxonPlatform.parseXmlFromString(mapping)
+    let sourceUrl = URL.createObjectURL(new Blob([source]));
+    let sourceLocation, stylesheetParams;
+
+    if (isJson(source) && isXml(mapping)) {
+        stylesheetParams = {
+            jsonUri: `${sourceUrl}`,
+        };
+
+        mappingDoc.children[0].setAttribute('xmlns:xs', 'http://www.w3.org/2001/XMLSchema')
+        mappingDoc.children[0].insertAdjacentHTML('afterbegin', `
+            <xsl:param name="jsonUri" as="xs:string"/>
+            <xsl:template name="xsl:initial-template">
+                <xsl:variable name="jsonText" select="unparsed-text($jsonUri)"/>
+                <xsl:variable name="jsonXml" select="json-to-xml($jsonText)"/>
+                <xsl:apply-templates select="$jsonXml"/>
+            </xsl:template>
+       `)
+
+    } else {
+        sourceLocation = sourceUrl;
+    }
+
     window.mappingDoc = mappingDoc
     mappingDoc._saxonBaseUri = "file:///"
     let compiledMapping = JSON.stringify(SaxonJS.compile(mappingDoc))
     let compiledMappingUrl = URL.createObjectURL(new Blob([compiledMapping]))
-    let sourceUrl = URL.createObjectURL(new Blob([source]));
     let result = SaxonJS.transform({
         stylesheetLocation: compiledMappingUrl,
-        sourceLocation: sourceUrl,
+        stylesheetParams,
+        sourceLocation,
         destination: 'serialized',
         sourceType: source.startsWith('{') || source.startsWith('[') ? 'json' : 'xml',
     }).principalResult
 
-    if (result.trim().startsWith('{') || result.trim().startsWith('[')) {
+    if (isJson(result.trim())) {
         return JSON.stringify(JSON.parse(result), null, 4)
     }
 
-    return vkbeautify.xml(result)
+    if (isXml(result)) {
+        return vkbeautify.xml(result)
+    }
+
+    return result
 }
 
 async function upload(event) {
@@ -430,6 +458,15 @@ function updateNetworkStatus(status) {
     } else {
         $('#networkStatus')[0].style.background = 'red'
     }
+}
+
+function isJson(string) {
+    try {
+        JSON.parse(string);
+    } catch (e) {
+        return false;
+    }
+    return true;
 }
 
 function downloadResult() {
