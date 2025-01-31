@@ -395,12 +395,30 @@ function runXsl3(source, mapping) {
         };
 
         mappingDoc.children[0].setAttribute('xmlns:xs', 'http://www.w3.org/2001/XMLSchema')
+        mappingDoc.children[0].setAttribute('exclude-result-prefixes', 'xs')
         mappingDoc.children[0].insertAdjacentHTML('afterbegin', `
             <xsl:param name="jsonUri" as="xs:string"/>
             <xsl:template name="xsl:initial-template">
                 <xsl:variable name="jsonText" select="unparsed-text($jsonUri)"/>
                 <xsl:variable name="jsonXml" select="json-to-xml($jsonText)"/>
-                <xsl:apply-templates select="$jsonXml"/>
+
+                <xsl:variable name="cleanXml">
+                    <xsl:apply-templates select="$jsonXml" mode="removeNamespace"/>
+                </xsl:variable>
+
+                <xsl:apply-templates select="$cleanXml"/>
+            </xsl:template>
+
+            <!-- Template to remove the namespace -->
+            <xsl:template match="*" mode="removeNamespace">
+                <xsl:element name="{local-name()}">
+                    <xsl:apply-templates select="@* | node()" mode="removeNamespace"/>
+                </xsl:element>
+            </xsl:template>
+            <xsl:template match="@*" mode="removeNamespace">
+                <xsl:attribute name="{local-name()}">
+                    <xsl:value-of select="."/>
+                </xsl:attribute>
             </xsl:template>
        `)
 
