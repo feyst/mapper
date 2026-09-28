@@ -1,12 +1,58 @@
 const path = require('path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const WorkboxPlugin = require('workbox-webpack-plugin')
-const WebpackPwaManifest = require('webpack-pwa-manifest')
-const {ModifySourcePlugin} = require('modify-source-webpack-plugin');
-const CopyPlugin = require("copy-webpack-plugin");
 const fs = require('fs');
 const webpack = require('webpack');
 const packageJson = require('./package.json');
+
+// Emits the web app manifest and its icons under content-hashed names, so they can be cached indefinitely, and links
+// the manifest and the SVG icon (as favicon and mask icon) from the generated index.html. Icon `src` values are paths
+// relative to this config file.
+class PwaManifestPlugin {
+    constructor(manifest) {
+        this.manifest = manifest
+    }
+
+    apply(compiler) {
+        const {Compilation, sources, util} = compiler.webpack
+
+        compiler.hooks.thisCompilation.tap('PwaManifestPlugin', compilation => {
+            const {hashFunction, hashDigest, hashDigestLength} = compilation.outputOptions
+            const hashedName = (name, extension, content) =>
+                `${name}.${util.createHash(hashFunction).update(content).digest(hashDigest).slice(0, hashDigestLength)}${extension}`
+            let manifestFile, svgIconFile
+
+            compilation.hooks.processAssets.tap({name: 'PwaManifestPlugin', stage: Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL}, () => {
+                const icons = this.manifest.icons.map(icon => {
+                    const source = path.resolve(__dirname, icon.src)
+                    const content = fs.readFileSync(source)
+                    const file = hashedName(`icon_${icon.sizes}`, path.extname(source), content)
+                    compilation.fileDependencies.add(source)
+                    compilation.emitAsset(file, new sources.RawSource(content), {immutable: true})
+                    if ('image/svg+xml' === icon.type) {
+                        svgIconFile = file
+                    }
+                    return {...icon, src: file}
+                })
+                const content = JSON.stringify({...this.manifest, icons}, null, 2)
+                manifestFile = hashedName('manifest', '.json', content)
+                compilation.emitAsset(manifestFile, new sources.RawSource(content), {immutable: true})
+            })
+
+            HtmlWebpackPlugin.getHooks(compilation).alterAssetTagGroups.tap('PwaManifestPlugin', data => {
+                if (svgIconFile) {
+                    data.headTags.push(HtmlWebpackPlugin.createHtmlTagObject('link', {rel: 'icon', href: svgIconFile}))
+                    data.headTags.push(HtmlWebpackPlugin.createHtmlTagObject('link', {rel: 'mask-icon', href: svgIconFile}))
+                }
+                data.headTags.push(HtmlWebpackPlugin.createHtmlTagObject('link', {rel: 'manifest', href: manifestFile}))
+                if (this.manifest.theme_color) {
+                    data.headTags.push(HtmlWebpackPlugin.createHtmlTagObject('meta', {name: 'theme-color', content: this.manifest.theme_color}))
+                }
+                return data
+            })
+        })
+    }
+}
 
 module.exports = (env, argv) => {
     let config = {
@@ -26,19 +72,26 @@ module.exports = (env, argv) => {
             new HtmlWebpackPlugin({
                 template: 'src/index.html'
             }),
-            new ModifySourcePlugin({
-                rules: [
+            // Also provides the favicon, so it runs under `webpack serve` too.
+            new PwaManifestPlugin({
+                name: 'JQ and XSL mapper',
+                short_name: 'Data mapper',
+                description: 'A tool to map xml and json using JQ and XSL',
+                orientation: 'portrait',
+                display: 'standalone',
+                start_url: '.',
+                background_color: '#ffffff',
+                theme_color: '#ffffff',
+                icons: [
                     {
-                        test: /SaxonJS2\.js$/,
-                        modify: src => src.replace(/,xd:function\(n\)\{return/, ',xd:function(n){return true;return')
-                    }
-                ]
-            }),
-            new CopyPlugin({
-                patterns: [
+                        src: 'src/icon.svg',
+                        sizes: '150x150',
+                        type: 'image/svg+xml',
+                    },
                     {
-                        from: "node_modules/jq-web/jq.wasm.wasm",
-                        to: "jq.wasm.wasm"
+                        src: 'src/icon-512.png',
+                        sizes: '512x512',
+                        type: 'image/png',
                     },
                 ],
             }),
@@ -58,6 +111,10 @@ module.exports = (env, argv) => {
                 },
             },
         },
+        performance: {
+            maxAssetSize: 2.5 * 1024 * 1024,
+            maxEntrypointSize: 2.5 * 1024 * 1024,
+        },
         module: {
             rules: [
                 {
@@ -67,10 +124,6 @@ module.exports = (env, argv) => {
                 {
                     test: /\.(png|svg|jpg|jpeg|gif)$/i,
                     type: 'asset/resource',
-                },
-                {
-                    test: /\.html$/i,
-                    loader: 'html-loader',
                 },
             ],
         },
@@ -110,24 +163,6 @@ module.exports = (env, argv) => {
                 skipWaiting: true,
                 maximumFileSizeToCacheInBytes: 99999999999999,
             }),
-            new WebpackPwaManifest({
-                publicPath: '/',
-                name: 'JQ and XSL mapper',
-                short_name: 'Data mapper',
-                description: 'A tool to map xml and json using JQ and XSL',
-                background_color: '#ffffff',
-                theme_color: '#ffffff',
-                icons: [
-                    {
-                        src: path.resolve('src/icon.svg'),
-                        sizes: [150]
-                    },
-                    {
-                        src: path.resolve('src/icon-512.png'),
-                        sizes: [512]
-                    },
-                ]
-            })
         );
     }
 

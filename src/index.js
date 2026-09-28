@@ -1,35 +1,19 @@
 import $ from 'jquery'
-import _ from 'underscore'
-import jq from 'jq-web/jq.wasm'
-import {saveAs} from 'file-saver';
+import {loadJq} from 'jq-wasm'
+import xmlFormat from 'xml-formatter'
 
-import CodeMirror from 'codemirror/lib/codemirror'
-import 'codemirror/mode/xml/xml'
-import 'codemirror/mode/javascript/javascript'
-import 'codemirror/addon/mode/simple'
-import jsonlint from 'jsonlint-mod/web/jsonlint'
-import 'codemirror/addon/lint/lint'
-import 'codemirror/addon/hint/javascript-hint'
-import 'codemirror/addon/lint/javascript-lint'
-import 'codemirror/addon/lint/html-lint'
-import 'codemirror/addon/lint/json-lint'
-import 'codemirror/addon/edit/closetag'
-import 'codemirror/addon/fold/xml-fold'
-import 'codemirror/addon/fold/foldcode'
-import 'codemirror/addon/fold/foldgutter'
-import 'codemirror/addon/edit/matchtags'
-import 'codemirror/addon/edit/matchbrackets'
-import 'codemirror/addon/edit/closebrackets'
-import 'codemirror/addon/scroll/simplescrollbars'
-import vkbeautify from 'vkbeautify'
+import {EditorView, basicSetup} from 'codemirror'
+import {keymap} from '@codemirror/view'
+import {insertTab, indentSelection} from '@codemirror/commands'
+import {EditorState, Compartment} from '@codemirror/state'
+import {StreamLanguage, indentUnit} from '@codemirror/language'
+import {simpleMode} from '@codemirror/legacy-modes/mode/simple-mode'
+import {xml} from '@codemirror/lang-xml'
+import {json, jsonParseLinter} from '@codemirror/lang-json'
+import {linter, lintGutter, setDiagnostics} from '@codemirror/lint'
+import {oneDark} from '@codemirror/theme-one-dark'
 
-import 'codemirror/lib/codemirror.css'
-import 'codemirror/theme/darcula.css'
-import 'codemirror/addon/lint/lint.css'
-import 'codemirror/addon/scroll/simplescrollbars.css'
 import './style.css'
-
-window.jsonlint = jsonlint
 
 const debounce = 600;
 
@@ -78,95 +62,114 @@ const jqMode = {
     ]
 };
 
-CodeMirror.defineSimpleMode('jq', jqMode);
+const jqLanguage = StreamLanguage.define({...simpleMode(jqMode), name: 'jq'});
+
+// Starts fetching the jq WebAssembly module at page load; every jq call awaits it.
+const jqReady = loadJq();
 
 let sourceEditor, mappingEditor, resultEditor;
 
-const generalOptions = {
-    theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'darcula' : 'default',
-    lineNumbers: true,
-    matchBrackets: true,
-    indentUnit: 4,
-    autocorrect: true,
-    foldGutter: true,
-    lint: true,
-    lintOnChange: true,
-    highlightLines: true,
-    gutters: ["CodeMirror-lint-markers", "CodeMirror-linenumbers", "CodeMirror-foldgutter"],
-    readOnly: false,
-    scrollbarStyle: 'simple',
-    // scrollbarStyle: null,
-}
-const xmlOptions = {
-    mode: "application/xml",
-    alignCDATA: true,
-    htmlMode: false,
-    autoCloseTags: true,
-    matchTags: true,
-};
-const xslOptions = {
-    ...xmlOptions,
-    ...{
-        lint: {
-            'getAnnotations': xslValidator,
-            async: true,
-        }
-    }
-}
-const jsonOptions = {
-    mode: "application/json",
-    autoCloseBrackets: true,
+const languages = {
+    xml: () => xml(),
+    xsl: () => [xml(), linter(xslValidator)],
+    json: () => [json(), linter(jsonParseLinter())],
+    jq: () => [jqLanguage, linter(jqValidator)],
 }
 
-const jqOptions = {
-    mode: 'jq',
-    lint: {
-        'getAnnotations': jqValidator,
-        async: true,
-    },
-}
-const readOnlyOptions = {
-    readOnly: true,
-    lint: false,
-}
-
-function jqValidator(text, updateLinting) {
-    let errors = [];
-    try {
-        jq.json({}, text)
-    } catch (e) {
-        errors = e.stack.split('jq: ')
-        errors = errors.filter(error => error !== '' && !error.match(/\d+ compile error/g))
-        errors = errors.map(error => {
-            let lineNumber = error.match(/(?<=, line )\d+(?=:$)/m)
-            if (lineNumber) {
-                lineNumber = lineNumber[0]
-            } else {
-                lineNumber = 2
-            }
-            return {
-                from: {
-                    line: lineNumber - 1,
-                    ch: 0,
-                    sticky: null,
-                },
-                to: {
-                    line: lineNumber - 1,
-                    ch: 999,
-                    sticky: null,
-                },
-                message: error,
-                severity: 'error',
-            }
+class Editor {
+    constructor(parent, {readOnly = false, onChange = null} = {}) {
+        this.mode = null
+        this.language = new Compartment()
+        this.readOnly = readOnly
+        this.view = new EditorView({
+            parent,
+            extensions: [
+                basicSetup,
+                indentUnit.of('    '),
+                lintGutter(),
+                window.matchMedia('(prefers-color-scheme: dark)').matches ? oneDark : EditorView.theme({'&': {backgroundColor: 'white'}}),
+                EditorState.readOnly.of(readOnly),
+                // CodeMirror 6 leaves Tab to the browser; bind it the way CodeMirror 5 did.
+                readOnly ? [] : keymap.of([{key: 'Tab', run: insertTab, shift: indentSelection}]),
+                this.language.of([]),
+                onChange ? EditorView.updateListener.of(update => update.docChanged && onChange()) : [],
+            ],
         })
     }
-    updateLinting(errors)
+
+    getValue() {
+        return this.view.state.doc.toString()
+    }
+
+    // Replaces only the part that differs, so the scroll position, folds and selection survive a re-run that changes
+    // little or nothing.
+    setValue(value, {scrollToEnd = false} = {}) {
+        // The document only holds \n line breaks, so other line endings would never match in the comparison below.
+        value = value.replace(/\r\n?/g, '\n')
+        const current = this.getValue()
+        const maxLength = Math.min(current.length, value.length)
+        let start = 0
+        while (start < maxLength && current[start] === value[start]) {
+            start++
+        }
+        let end = 0
+        while (end < maxLength - start && current[current.length - 1 - end] === value[value.length - 1 - end]) {
+            end++
+        }
+        this.view.dispatch({
+            changes: {from: start, to: current.length - end, insert: value.slice(start, value.length - end)},
+            effects: scrollToEnd ? EditorView.scrollIntoView(value.length) : [],
+        })
+    }
+
+    append(value) {
+        const end = this.view.state.doc.length
+        this.view.dispatch({
+            changes: {from: end, insert: value},
+            effects: EditorView.scrollIntoView(end + value.length),
+        })
+    }
+
+    // Read-only editors skip the JSON linter: they show generated output, and raw jq output is not JSON.
+    setMode(mode) {
+        if (this.mode === mode) {
+            return
+        }
+        this.mode = mode
+        const language = this.readOnly && 'json' === mode ? json() : languages[mode]()
+        // Diagnostics outlive the linter that produced them, so clear them along with the old language.
+        this.view.dispatch(setDiagnostics(this.view.state, []), {effects: this.language.reconfigure(language)})
+    }
 }
 
-function xslValidator(text, updateLinting) {
-    let errors = [];
+// Diagnostic spanning a whole line, clamped to the document because error messages can point past its end.
+function lineDiagnostic(doc, lineIndex, message) {
+    const line = doc.line(Math.min(Math.max(lineIndex + 1, 1), doc.lines))
+    return {from: line.from, to: line.to, message, severity: 'error'}
+}
+
+// Only compile errors (jq exit code 3) are reported: the filter runs against an empty object here, so runtime errors
+// say nothing about the actual source.
+async function jqValidator(view) {
+    const doc = view.state.doc
+    const {stderr, exitCode} = (await jqReady).raw({}, doc.toString())
+    if (3 !== exitCode) {
+        return []
+    }
+    return stderr.split('jq: ')
+        .filter(error => error !== '' && !error.match(/\d+ compile errors?/g))
+        .map(error => {
+            const lineNumber = error.match(/, line (\d+)(?:, column \d+)?:/)
+            return lineDiagnostic(doc, (lineNumber ? parseInt(lineNumber[1]) : 2) - 1, error)
+        })
+}
+
+function xslValidator(view) {
+    const doc = view.state.doc
+    const text = doc.toString()
     try {
-        runXsl3(sourceEditor.getValue(), mappingEditor.getValue())
+        runXsl3(sourceEditor.getValue(), text)
+        return []
     } catch (exception) {
         let lineNumber = 0
         let searchLineNumber = exception.message.match(/(?<=on line )\d+(?= )/m)
@@ -180,24 +183,27 @@ function xslValidator(text, updateLinting) {
                 lineNumber = lineNumberOfIndex(text, searchErrorInText.index) - 1
             }
         }
-        errors = [
-            {
-                from: {
-                    line: lineNumber,
-                    ch: 0,
-                    sticky: null,
-                },
-                to: {
-                    line: lineNumber,
-                    ch: 999,
-                    sticky: null,
-                },
-                message: exception.message,
-                severity: 'error',
-            }
-        ]
+        return [lineDiagnostic(doc, lineNumber, exception.message)]
     }
-    updateLinting(errors)
+}
+
+// XML that does not parse is returned unchanged: without strictMode the parser would add the closing tags missing from
+// truncated or malformed input. The line separator is set because it defaults to \r\n.
+function formatXml(text) {
+    return xmlFormat(text, {indentation: '    ', collapseContent: true, lineSeparator: '\n', strictMode: true, throwOnFailure: false})
+}
+
+// Runs fn once calls have stopped for `wait` milliseconds.
+function debounced(fn, wait) {
+    let timer
+    return (...args) => {
+        clearTimeout(timer)
+        timer = setTimeout(() => fn(...args), wait)
+    }
+}
+
+function formatJson(text) {
+    return JSON.stringify(JSON.parse(text), null, 4)
 }
 
 function filterForRegex(str) {
@@ -210,34 +216,20 @@ function lineNumberOfIndex(text, index) {
     return beforeText.split('\n').length
 }
 
-function setOptions(editor, options) {
-    Object.entries(options).forEach(option => editor.setOption(option[0], option[1]))
-}
-
 function isXml(string) {
     return null != string && string.trim().match(/^</)
 }
 
-function setEditorOptions(source, mapping, result) {
-    if (isXml(source) && 'application/xml' !== sourceEditor.getOption('mode')) {
-        setOptions(sourceEditor, {...generalOptions, ...xmlOptions})
-    } else if (!isXml(source) && 'application/json' !== sourceEditor.getOption('mode')) {
-        setOptions(sourceEditor, {...generalOptions, ...jsonOptions})
-    }
-    if (isXml(mapping) && 'application/xml' !== mappingEditor.getOption('mode')) {
-        setOptions(mappingEditor, {...generalOptions, ...xslOptions})
+function setEditorModes(source, mapping, result) {
+    sourceEditor.setMode(isXml(source) ? 'xml' : 'json')
+    if (isXml(mapping)) {
+        mappingEditor.setMode('xsl')
         $('#jqRawOption')[0].style.display = 'none'
-    } else if (!isXml(mapping) && 'application/json' !== mappingEditor.getOption('mode') && mapping !== '') {
-        setOptions(mappingEditor, {...generalOptions, ...jqOptions})
+    } else if (mapping !== '') {
+        mappingEditor.setMode('jq')
         $('#jqRawOption')[0].style.display = 'inline'
     }
-    if (isXml(result) && 'application/xml' !== resultEditor.getOption('mode')) {
-        setOptions(resultEditor, {...generalOptions, ...xmlOptions, ...readOnlyOptions})
-    } else if (!isXml(result) && 'application/json' !== resultEditor.getOption('mode')) {
-        setOptions(resultEditor, {...generalOptions, ...jsonOptions, ...readOnlyOptions})
-    } else {
-        setOptions(resultEditor, {...generalOptions, ...readOnlyOptions})
-    }
+    resultEditor.setMode(isXml(result) ? 'xml' : 'json')
 }
 
 async function autoProcess() {
@@ -277,12 +269,10 @@ async function autoMap() {
         while (true) {
             const {value, done} = await reader.read();
             if (done) break;
-            mappingEditor.setValue(mappingEditor.getValue() + value)
-            document.querySelector('#mappingEditor div .CodeMirror-scroll').scrollTo(0, 999999)
+            mappingEditor.append(value)
         }
 
-        mappingEditor.setValue(vkbeautify.xml(mappingEditor.getValue()))
-        document.querySelector('#mappingEditor div .CodeMirror-scroll').scrollTo(0, 999999)
+        mappingEditor.setValue(formatXml(mappingEditor.getValue()), {scrollToEnd: true})
 
     } catch (e) {
         console.log(e)
@@ -311,11 +301,9 @@ async function processFields() {
             }
         }
 
-        setEditorOptions(source, mapping, result)
+        setEditorModes(source, mapping, result)
 
-        let scroll = resultEditor.getScrollInfo()
         resultEditor.setValue(result)
-        resultEditor.scrollTo(scroll.left, scroll.top)
     } catch (e) {
     }
     $('#result .inProgress').hide();
@@ -348,38 +336,29 @@ function jqAutoSlurp(source) {
 
 async function runJq(source, mapping) {
     try {
+        const jq = await jqReady
+        // jq-wasm passes string input through as JSON text, so the parsed source goes back in serialized.
+        const input = JSON.stringify(JSON.parse(source))
         let result;
         if ($('#jqRaw')[0].checked) {
-            result = await jq.promised.raw(JSON.stringify(JSON.parse(source)), mapping, ['-r'])
+            // Raw output keeps whatever jq printed before a runtime error.
+            result = jq.raw(input, mapping, ['-r']).stdout
         } else {
-            result = JSON.stringify(await jq.promised.json(JSON.parse(source), mapping))
+            // Throws on any jq error, so JSON output is shown only when the whole filter succeeded.
+            const outputs = jq.json(input, mapping)
+            if (0 === outputs.length) {
+                return ''
+            }
+            // Several outputs are combined into one array so the result stays a single JSON document.
+            result = JSON.stringify(1 === outputs.length ? outputs[0] : outputs)
         }
         try {
-            result = vkbeautify.json(result)
+            result = formatJson(result)
         } catch (e) {
         }
         return result
     } catch (e) {
         return '';
-    }
-}
-
-function runXsl(source, mapping) {
-    try {
-        let xmlParser = new DOMParser();
-        let xslParser = new DOMParser();
-        let xmlSerializer = new XMLSerializer();
-        let processor = new XSLTProcessor();
-        let xslDoc = xslParser.parseFromString(mapping, "application/xml");
-        let xmlDoc = xmlParser.parseFromString(source, "application/xml");
-
-        processor.importStylesheet(xslDoc);
-        let resultDoc = processor.transformToDocument(xmlDoc);
-        let resultXml = xmlSerializer.serializeToString(resultDoc);
-        return '<?xml version="1.0" encoding="UTF-8"?>\n' + vkbeautify.xml(resultXml)
-    } catch (e) {
-        console.log('Exception: ', e);
-        return null;
     }
 }
 
@@ -394,10 +373,8 @@ function runXsl3(source, mapping) {
             jsonUri: `${sourceUrl}`,
         };
 
-        mappingDoc.children[0].setAttribute('xmlns:xs', 'http://www.w3.org/2001/XMLSchema')
-        mappingDoc.children[0].setAttribute('exclude-result-prefixes', 'xs')
         mappingDoc.children[0].insertAdjacentHTML('afterbegin', `
-            <xsl:param name="jsonUri" as="xs:string"/>
+            <xsl:param name="jsonUri"/>
             <xsl:template name="xsl:initial-template">
                 <xsl:variable name="jsonText" select="unparsed-text($jsonUri)"/>
                 <xsl:variable name="jsonXml" select="json-to-xml($jsonText)"/>
@@ -443,7 +420,7 @@ function runXsl3(source, mapping) {
     }
 
     if (isXml(result)) {
-        return vkbeautify.xml(result)
+        return formatXml(result)
     }
 
     return result
@@ -453,11 +430,11 @@ async function upload(event) {
     let content = await $(event.target).prop('files')[0].text()
     let newLines = content.match(/\n/g) ?? []
     if (isXml(content) && newLines.length <= 2) {
-        content = vkbeautify.xml(content)
+        content = formatXml(content)
     }
     if (!isXml() && newLines.length <= 2) {
         try {
-            content = vkbeautify.json(content)
+            content = formatJson(content)
         } catch (e) {
         }
     }
@@ -487,6 +464,15 @@ function isJson(string) {
     return true;
 }
 
+function saveAs(blob, fileName) {
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = fileName
+    link.click()
+    // The download starts asynchronously, so revoking the URL right away could abort it.
+    setTimeout(() => URL.revokeObjectURL(link.href), 40000)
+}
+
 function downloadResult() {
     let content = resultEditor.getValue();
     if (isXml(content)) {
@@ -499,19 +485,13 @@ function downloadResult() {
 }
 
 $(document).ready(function () {
-    sourceEditor = CodeMirror(document.getElementById('sourceEditor'), generalOptions);
-    sourceEditor.on('change', _.debounce(v => autoProcess(), debounce));
-    sourceEditor.setSize(null, '100%')
+    sourceEditor = new Editor(document.getElementById('sourceEditor'), {onChange: debounced(() => autoProcess(), debounce)});
     $('#sourceUpload').change({editor: sourceEditor}, upload);
 
-
-    mappingEditor = CodeMirror(document.getElementById('mappingEditor'), generalOptions);
-    mappingEditor.on('change', _.debounce(v => autoProcess(), debounce));
-    mappingEditor.setSize(null, '100%')
+    mappingEditor = new Editor(document.getElementById('mappingEditor'), {onChange: debounced(() => autoProcess(), debounce)});
     $('#mappingUpload').change({editor: mappingEditor}, upload);
 
-    resultEditor = CodeMirror(document.getElementById('resultEditor'), {...generalOptions, ...readOnlyOptions});
-    resultEditor.setSize(null, '100%')
+    resultEditor = new Editor(document.getElementById('resultEditor'), {readOnly: true});
 
     $('#layout').on('change', (event) => {
         $('.content').get(0).style.gridTemplateAreas = $(event.target).val()

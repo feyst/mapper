@@ -1,7 +1,7 @@
 [build]
   command = "npm run build-production"
   publish = "dist/"
-  environment = { NODE_VERSION = "18" }
+  environment = { NODE_VERSION = "24" }
 
 [[headers]]
   for = "/*"
