@@ -4,3 +4,4 @@
 /dist
 !/dist/.gitkeep
 /lib/saxon/saxon-js
+/.tmp
