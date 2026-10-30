@@ -1,21 +1,34 @@
 import $ from 'jquery'
 import {loadJq} from 'jq-wasm'
 import xmlFormat from 'xml-formatter'
+import {format} from 'jsonc-parser'
 
 import {EditorView, basicSetup} from 'codemirror'
-import {keymap} from '@codemirror/view'
+import {keymap, showPanel} from '@codemirror/view'
 import {insertTab, indentSelection} from '@codemirror/commands'
-import {EditorState, Compartment} from '@codemirror/state'
+import {EditorState, Compartment, StateEffect, StateField} from '@codemirror/state'
 import {StreamLanguage, indentUnit} from '@codemirror/language'
 import {simpleMode} from '@codemirror/legacy-modes/mode/simple-mode'
 import {xml} from '@codemirror/lang-xml'
 import {json, jsonParseLinter} from '@codemirror/lang-json'
-import {linter, lintGutter, setDiagnostics} from '@codemirror/lint'
+import {linter, lintGutter, setDiagnostics, forceLinting} from '@codemirror/lint'
 import {oneDark} from '@codemirror/theme-one-dark'
 
+import jsonToXmlStylesheet from './json-to-xml.xsl'
 import './style.css'
 
 const debounce = 600;
+
+// Rough cost of a run per kilobyte or megabyte of text, measured in Chromium. SaxonJS compiles the template from its
+// text on every run, and a JSON source is converted to XML first. jq runs are fast enough to leave out.
+const secondsPerTemplateKb = 0.05
+const secondsPerXmlSourceMb = 0.25
+const secondsPerJsonSourceMb = 1.25
+// A load that makes a run take longer than this switches Auto run off, so a slow run does not follow every pause in
+// typing.
+const autoRunLimitSeconds = 5
+// formatXml() takes time that grows with the square of the text's length: about 3 s for 1 MB, minutes for 10 MB.
+const prettifyXmlLimit = 1000 * 1000
 
 const jqMode = {
     start: [
@@ -69,15 +82,40 @@ const jqReady = loadJq();
 
 let sourceEditor, mappingEditor, resultEditor;
 
+// The texts of processFields()'s last XSLT run and the error it threw, or null. The mapping editor's linter reuses that
+// outcome when the texts are the same, instead of running the template again. Run and Auto run always run the
+// template, so output that differs between runs, such as current-dateTime(), is new on every Run.
+let lastRun = {source: null, mapping: null, error: null}
+
+// Makes the mapping editor's linter check the template again although the template did not change.
+const refreshMarks = StateEffect.define()
+
 const languages = {
     xml: () => xml(),
-    xsl: () => [xml(), linter(xslValidator)],
+    xsl: () => [xml(), linter(xslValidator, {
+        needsRefresh: update => update.transactions.some(transaction => transaction.effects.some(effect => effect.is(refreshMarks))),
+    })],
     json: () => [json(), linter(jsonParseLinter())],
     jq: () => [jqLanguage, linter(jqValidator)],
 }
 
+const setMessage = StateEffect.define()
+
+// A message shown above the editor's content, such as why a file was not loaded; null removes it.
+const messagePanel = StateField.define({
+    create: () => null,
+    update: (message, transaction) => transaction.effects.reduce((value, effect) => effect.is(setMessage) ? effect.value : value, message),
+    provide: field => showPanel.from(field, message => message ? () => {
+        const dom = document.createElement('div')
+        dom.className = 'cm-message'
+        dom.setAttribute('role', 'alert')
+        dom.textContent = message
+        return {dom, top: true}
+    } : null),
+})
+
 class Editor {
-    constructor(parent, {readOnly = false, onChange = null} = {}) {
+    constructor(parent, {readOnly = false, onChange = null, onDropFile = null} = {}) {
         this.mode = null
         this.language = new Compartment()
         this.readOnly = readOnly
@@ -92,9 +130,27 @@ class Editor {
                 // CodeMirror 6 leaves Tab to the browser; bind it the way CodeMirror 5 did.
                 readOnly ? [] : keymap.of([{key: 'Tab', run: insertTab, shift: indentSelection}]),
                 this.language.of([]),
+                messagePanel,
                 onChange ? EditorView.updateListener.of(update => update.docChanged && onChange()) : [],
+                // A file dropped on the editor is loaded like a chosen one. CodeMirror would otherwise insert its text
+                // at the drop position, without the checks of readSourceFile().
+                onDropFile ? EditorView.domEventHandlers({
+                    drop: event => {
+                        const file = event.dataTransfer?.files[0]
+                        if (!file) {
+                            return false
+                        }
+                        onDropFile(file)
+                        return true
+                    },
+                }) : [],
             ],
         })
+    }
+
+    // Shows a message above the editor's content; null removes it.
+    setMessage(message) {
+        this.view.dispatch({effects: setMessage.of(message)})
     }
 
     getValue() {
@@ -167,30 +223,58 @@ async function jqValidator(view) {
 function xslValidator(view) {
     const doc = view.state.doc
     const text = doc.toString()
-    try {
-        runXsl3(sourceEditor.getValue(), text)
+    const source = sourceEditor.getValue()
+    let exception = null
+    if (source === lastRun.source && text === lastRun.mapping) {
+        exception = lastRun.error
+    } else if (!$('#autoRun')[0].checked) {
+        // With Auto run off nothing runs until Run is clicked, so a slow template does not freeze the page after every
+        // pause in typing. The run brings the marks.
         return []
-    } catch (exception) {
-        let lineNumber = 0
-        let searchLineNumber = exception.message.match(/(?<=on line )\d+(?= )/m)
-        if (searchLineNumber && !exception.xsltModule) {
-            lineNumber = parseInt(searchLineNumber[0]) - 1
+    } else {
+        try {
+            runXsl3(source, text)
+        } catch (e) {
+            exception = e
         }
-        let searchError = exception.message.match(/(?<= in \/ {).+(?=}: )/)
-        if (searchError) {
-            let searchErrorInText = text.match(new RegExp(filterForRegex(searchError[0])))
-            if (searchErrorInText) {
-                lineNumber = lineNumberOfIndex(text, searchErrorInText.index) - 1
-            }
-        }
-        return [lineDiagnostic(doc, lineNumber, exception.message)]
     }
+    if (null === exception) {
+        return []
+    }
+    let lineNumber = 0
+    let searchLineNumber = exception.message.match(/(?<=on line )\d+(?= )/m)
+    if (searchLineNumber && !exception.xsltModule) {
+        lineNumber = parseInt(searchLineNumber[0]) - 1
+    }
+    // SaxonJS gives the position of the element that holds the failing code (the n-th element), not its line.
+    let elementNumber = exception.message.match(/(?<= on line )\d+(?= in \S* {)/) ?? String(exception.errorObject).match(/(?<=^ on line )\d+(?= in \S*$)/)
+    if (elementNumber) {
+        lineNumber = lineNumberOfIndex(text, indexOfElement(text, parseInt(elementNumber[0]))) - 1
+    }
+    return [lineDiagnostic(doc, lineNumber, exception.message)]
+}
+
+// Index of the n-th start tag, skipping comments, CDATA sections, processing instructions and the doctype.
+function indexOfElement(text, n) {
+    const markup = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?]]>|<[?!][^>]*>|<(?!\/)/g
+    let match
+    while ((match = markup.exec(text))) {
+        if ('<' === match[0] && 0 === --n) {
+            return match.index
+        }
+    }
+    return 0
 }
 
 // XML that does not parse is returned unchanged: without strictMode the parser would add the closing tags missing from
 // truncated or malformed input. The line separator is set because it defaults to \r\n.
 function formatXml(text) {
     return xmlFormat(text, {indentation: '    ', collapseContent: true, lineSeparator: '\n', strictMode: true, throwOnFailure: false})
+}
+
+// XML longer than prettifyXmlLimit is shown as it is.
+function canPrettify(text) {
+    return !isXml(text) || text.length <= prettifyXmlLimit
 }
 
 // Runs fn once calls have stopped for `wait` milliseconds.
@@ -206,8 +290,22 @@ function formatJson(text) {
     return JSON.stringify(JSON.parse(text), null, 4)
 }
 
-function filterForRegex(str) {
-    return str.replace(/([.?*+^$[\]\\(){}|-])/g, "\\$1");
+// Adds line breaks and indentation to JSON without touching its tokens, so numbers, key order and duplicate keys stay
+// as written and the template sees the file's data. jsonc-parser's applyEdits() is quadratic in the number of edits,
+// so they are applied in one pass. Where the indent would be exactly 200 characters (50 levels deep), format() returns
+// an edit without content; treating it as empty only loses a line break.
+function reindentJson(text) {
+    JSON.parse(text) // throws for text that is not JSON, which then loads unchanged
+    const edits = format(text, undefined, {tabSize: 4, insertSpaces: true, eol: '\n'})
+        .sort((a, b) => a.offset - b.offset)
+    const parts = []
+    let position = 0
+    for (const edit of edits) {
+        parts.push(text.slice(position, edit.offset), edit.content ?? '')
+        position = edit.offset + edit.length
+    }
+    parts.push(text.slice(position))
+    return parts.join('')
 }
 
 function lineNumberOfIndex(text, index) {
@@ -295,13 +393,21 @@ async function processFields() {
         }
 
         if (isXml(mapping)) {
+            lastRun = {source, mapping, error: null}
             try {
                 result = await runXsl3(source, mapping) ?? ''
             } catch (e) {
+                lastRun.error = e
             }
         }
 
         setEditorModes(source, mapping, result)
+        if (isXml(mapping)) {
+            // The marks follow every run, also when only the source changed or Run was clicked. The check reads this
+            // run's outcome from lastRun, so it does not run the template again.
+            mappingEditor.view.dispatch({effects: refreshMarks.of(null)})
+            forceLinting(mappingEditor.view)
+        }
 
         resultEditor.setValue(result)
     } catch (e) {
@@ -362,89 +468,179 @@ async function runJq(source, mapping) {
     }
 }
 
+// The JSON source as the document a template is applied to. A new document for every run: SaxonJS does not document
+// that fn:transform() leaves its source node unchanged, so a document passed to one run is not passed to the next.
+function jsonToXml(json) {
+    return SaxonJS.XPath.evaluate(
+        "transform(map{'stylesheet-text': $stylesheet, 'stylesheet-params': map{QName('', 'json'): $json}," +
+        " 'initial-template': QName('http://www.w3.org/1999/XSL/Transform', 'initial-template')})?output",
+        null, {params: {stylesheet: jsonToXmlStylesheet, json}})
+}
+
+// fn:transform() compiles the template from its text, the only documented way to compile in the browser build.
 function runXsl3(source, mapping) {
-    let saxonPlatform = SaxonJS.getPlatform()
-    let mappingDoc = saxonPlatform.parseXmlFromString(mapping)
-    let sourceUrl = URL.createObjectURL(new Blob([source]));
-    let sourceLocation, stylesheetParams;
-
-    if (isJson(source) && isXml(mapping)) {
-        stylesheetParams = {
-            jsonUri: `${sourceUrl}`,
-        };
-
-        mappingDoc.children[0].insertAdjacentHTML('afterbegin', `
-            <xsl:param name="jsonUri"/>
-            <xsl:template name="xsl:initial-template">
-                <xsl:variable name="jsonText" select="unparsed-text($jsonUri)"/>
-                <xsl:variable name="jsonXml" select="json-to-xml($jsonText)"/>
-
-                <xsl:variable name="cleanXml">
-                    <xsl:apply-templates select="$jsonXml" mode="removeNamespace"/>
-                </xsl:variable>
-
-                <xsl:apply-templates select="$cleanXml"/>
-            </xsl:template>
-
-            <!-- Template to remove the namespace -->
-            <xsl:template match="*" mode="removeNamespace">
-                <xsl:element name="{local-name()}">
-                    <xsl:apply-templates select="@* | node()" mode="removeNamespace"/>
-                </xsl:element>
-            </xsl:template>
-            <xsl:template match="@*" mode="removeNamespace">
-                <xsl:attribute name="{local-name()}">
-                    <xsl:value-of select="."/>
-                </xsl:attribute>
-            </xsl:template>
-       `)
-
-    } else {
-        sourceLocation = sourceUrl;
-    }
-
-    window.mappingDoc = mappingDoc
-    mappingDoc._saxonBaseUri = "file:///"
-    let compiledMapping = JSON.stringify(SaxonJS.compile(mappingDoc))
-    let compiledMappingUrl = URL.createObjectURL(new Blob([compiledMapping]))
-    let result = SaxonJS.transform({
-        stylesheetLocation: compiledMappingUrl,
-        stylesheetParams,
-        sourceLocation,
-        destination: 'serialized',
-        sourceType: source.startsWith('{') || source.startsWith('[') ? 'json' : 'xml',
-    }).principalResult
+    let result = SaxonJS.XPath.evaluate(
+        "transform(map{'stylesheet-text': $mapping, 'delivery-format': 'serialized'," +
+        " 'source-node': if (exists($json)) then $json else parse-xml($source)})?output",
+        null, {params: {mapping, source, json: isJson(source) ? jsonToXml(source) : null}})
 
     if (isJson(result.trim())) {
         return JSON.stringify(JSON.parse(result), null, 4)
     }
 
-    if (isXml(result)) {
+    if (isXml(result) && canPrettify(result)) {
         return formatXml(result)
     }
 
     return result
 }
 
-async function upload(event) {
-    let content = await $(event.target).prop('files')[0].text()
-    let newLines = content.match(/\n/g) ?? []
-    if (isXml(content) && newLines.length <= 2) {
-        content = formatXml(content)
+// JSON must be UTF-8 without a byte order mark (RFC 8259, section 8.1), so any other JSON file is refused. The check
+// reads the bytes, because File.text() hides both: it drops a byte order mark, decodes UTF-16 by its byte order mark
+// and turns bytes that are not UTF-8 into U+FFFD. XML may use any encoding File.text() reads.
+async function readSourceFile(file) {
+    const text = await file.text()
+    if (isXml(text)) {
+        return text
     }
-    if (!isXml() && newLines.length <= 2) {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    if (0xEF === bytes[0] && 0xBB === bytes[1] && 0xBF === bytes[2]) {
+        throw new Error('File not loaded: it starts with a byte order mark (BOM), which JSON must not have (RFC 8259, section 8.1).')
+    }
+    try {
+        // fatal makes decode() throw on bytes that are not UTF-8, UTF-16 included. It drops a leading byte order mark
+        // without complaint, hence the check above.
+        new TextDecoder('utf-8', {fatal: true}).decode(bytes)
+    } catch (e) {
+        throw new Error('File not loaded: it is not valid UTF-8, the encoding JSON must have (RFC 8259, section 8.1).')
+    }
+    return text
+}
+
+// File.text() reads an XML file as UTF-8, whatever encoding its declaration names. Returns a warning for an XML file
+// that is not UTF-8, or null. The declaration comes first in a file, so it is looked for in the first 100 bytes,
+// written as encoding="…" or encoding='…'.
+function xmlEncodingWarning(bytes) {
+    const declared = String.fromCharCode(...bytes.subarray(0, 100)).match(/<\?xml\s+[^>]*encoding=["']([^"']+)["']/i)?.[1]
+    let reason = null
+    if ((0xFF === bytes[0] && 0xFE === bytes[1]) || (0xFE === bytes[0] && 0xFF === bytes[1])) {
+        reason = 'it is in UTF-16 or UTF-32'
+    } else if (declared && !/^utf-?8$/i.test(declared)) {
+        reason = `its XML declaration names encoding ${declared}`
+    } else {
         try {
-            content = formatJson(content)
+            new TextDecoder('utf-8', {fatal: true}).decode(bytes)
         } catch (e) {
+            reason = 'it contains bytes that are not UTF-8'
+        }
+    }
+    return reason && `File loaded, but it is not UTF-8: ${reason}.`
+}
+
+// Loads a chosen or dropped file into an editor. load holds the editor, its file input, the element that shows the
+// loaded file's name, its Prettify box, read(), which returns the file's text or throws with the message to show, and
+// mode(), which returns the editor's language for a text.
+async function loadFile(file, load) {
+    let content
+    try {
+        content = await load.read(file)
+    } catch (e) {
+        // The editor keeps its content, so the name of the file loaded before stays too.
+        load.editor.setMessage(e.message)
+        return
+    } finally {
+        // Otherwise choosing the same file again fires cancel instead of change, and nothing loads.
+        load.input.value = ''
+    }
+    // A long name is cut off; the tooltip shows all of it.
+    load.name.textContent = file.name
+    load.name.title = file.name
+    // Checked on the file's bytes, before any prettifying.
+    load.editor.setMessage(isXml(content) ? xmlEncodingWarning(new Uint8Array(await file.arrayBuffer())) : null)
+    // Set before the content, so the file is highlighted also when nothing runs, and no check is scheduled in the
+    // editor's previous language.
+    load.editor.setMode(load.mode(content))
+
+    // A file on at most two lines, such as a minified one, is prettified so it can be read; any other file is shown as
+    // it is. The box shows which, and switches between the two until the content is edited.
+    load.loaded = content
+    load.prettify.checked = canPrettify(content) && (content.match(/\n/g) ?? []).length <= 2
+    showLoaded(load)
+    checkRunCost()
+}
+
+// Switches Auto run off when a run with the texts shown would be slow, and says so above the result. Only a load does
+// this, so once the user has switched Auto run back on, it stays on until the next load.
+function checkRunCost() {
+    const seconds = estimatedRunSeconds(sourceEditor.getValue(), mappingEditor.getValue())
+    if (seconds <= autoRunLimitSeconds) {
+        resultEditor.setMessage(null)
+        return
+    }
+    $('#autoRun').prop('checked', false).trigger('change')
+    resultEditor.setMessage(`Auto run is switched off: with these files a run takes about ${Math.round(seconds)} s. Click Run to see the result.`)
+}
+
+// Rough seconds a run takes. Prettifying the result is left out: prettifyXmlLimit keeps it short.
+function estimatedRunSeconds(source, mapping) {
+    if (!isXml(mapping)) {
+        return 0
+    }
+    const secondsPerSourceMb = isXml(source) ? secondsPerXmlSourceMb : secondsPerJsonSourceMb
+    return mapping.length / 1000 * secondsPerTemplateKb + source.length / 1000000 * secondsPerSourceMb
+}
+
+// Shows the last file loaded into an editor, prettified when its Prettify box is ticked.
+function showLoaded({editor, loaded, prettify}) {
+    let content = loaded
+    if (prettify.checked) {
+        if (isXml(content)) {
+            content = formatXml(content)
+        } else {
+            try {
+                content = reindentJson(content)
+            } catch (e) {
+            }
         }
     }
 
-    if (content.split("\n").length > 1000) {
-        $('#autoRun').prop('checked', false);
-        $('#autoRun').trigger('change');
+    editor.setValue(content)
+    // The editor's onChange disabled the box during setValue(); only other changes, and XML too long to prettify, keep
+    // it disabled.
+    prettify.disabled = !canPrettify(loaded)
+    if (prettify.disabled) {
+        prettify.labels[0].title = 'Disabled because XML larger than 1 MB takes too long to prettify.'
+    } else {
+        prettify.labels[0].removeAttribute('title')
     }
+}
 
-    event.data.editor.setValue(content)
+// Once an editor's content changed, its Prettify box would replace the edits, so it stays disabled until the next load.
+// A tooltip says why; it is on the box's label, so it also shows over the word Prettify. Before the first load the box is
+// disabled because there is nothing to prettify, and it has no tooltip.
+function disablePrettify({loaded, prettify}) {
+    prettify.disabled = true
+    if (undefined !== loaded) {
+        prettify.labels[0].title = 'Disabled because the content was changed after the file was loaded. Load the file again to toggle Prettify.'
+    }
+}
+
+function upload(event) {
+    return loadFile(event.target.files[0], event.data)
+}
+
+// The file input is hidden, because loadFile() clears it and it would then say "No file chosen" next to a loaded file.
+// This button opens its file chooser instead, and like a file input it also takes a file dropped onto it.
+function chooseFileButton(button, load) {
+    button.addEventListener('click', () => load.input.click())
+    button.addEventListener('dragover', event => event.dataTransfer.types.includes('Files') && event.preventDefault())
+    button.addEventListener('drop', event => {
+        const file = event.dataTransfer.files[0]
+        if (file) {
+            event.preventDefault()
+            loadFile(file, load)
+        }
+    })
 }
 
 function updateNetworkStatus(status) {
@@ -485,11 +681,47 @@ function downloadResult() {
 }
 
 $(document).ready(function () {
-    sourceEditor = new Editor(document.getElementById('sourceEditor'), {onChange: debounced(() => autoProcess(), debounce)});
-    $('#sourceUpload').change({editor: sourceEditor}, upload);
+    const sourceLoad = {
+        input: $('#sourceUpload')[0],
+        name: $('#sourceFileName')[0],
+        read: readSourceFile,
+        prettify: $('#sourcePrettify')[0],
+        mode: text => isXml(text) ? 'xml' : 'json',
+    }
+    const sourceAutoProcess = debounced(() => autoProcess(), debounce)
+    sourceEditor = new Editor(document.getElementById('sourceEditor'), {
+        onChange: () => {
+            disablePrettify(sourceLoad)
+            sourceAutoProcess()
+        },
+        onDropFile: file => loadFile(file, sourceLoad),
+    });
+    sourceLoad.editor = sourceEditor
+    $('#sourceUpload').change(sourceLoad, upload);
+    chooseFileButton($('#sourceChoose')[0], sourceLoad);
+    $('#sourcePrettify').change(() => showLoaded(sourceLoad));
 
-    mappingEditor = new Editor(document.getElementById('mappingEditor'), {onChange: debounced(() => autoProcess(), debounce)});
-    $('#mappingUpload').change({editor: mappingEditor}, upload);
+    const mappingLoad = {
+        input: $('#mappingUpload')[0],
+        name: $('#mappingFileName')[0],
+        read: file => file.text(),
+        prettify: $('#mappingPrettify')[0],
+        // A template gets XML highlighting without the XSLT error check, which would run it right away.
+        // processFields() switches the editor to XSLT after its run.
+        mode: text => isXml(text) ? 'xml' : 'jq',
+    }
+    const mappingAutoProcess = debounced(() => autoProcess(), debounce)
+    mappingEditor = new Editor(document.getElementById('mappingEditor'), {
+        onChange: () => {
+            disablePrettify(mappingLoad)
+            mappingAutoProcess()
+        },
+        onDropFile: file => loadFile(file, mappingLoad),
+    });
+    mappingLoad.editor = mappingEditor
+    $('#mappingUpload').change(mappingLoad, upload);
+    chooseFileButton($('#mappingChoose')[0], mappingLoad);
+    $('#mappingPrettify').change(() => showLoaded(mappingLoad));
 
     resultEditor = new Editor(document.getElementById('resultEditor'), {readOnly: true});
 
@@ -501,6 +733,7 @@ $(document).ready(function () {
 
     $('#autoRun').change(function () {
         if (this.checked) {
+            resultEditor.setMessage(null)
             $('#run').hide()
             processFields();
         } else {

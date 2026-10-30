@@ -25,12 +25,18 @@
 <section class="content">
     <div id="source" class="box">
         <h2>Source</h2>
-        <input type="file" id="sourceUpload" accept=".json, .xml"/>
+        <input type="file" id="sourceUpload" accept=".json, .xml" hidden/>
+        <button type="button" id="sourceChoose">Choose file</button>
+        <span id="sourceFileName" class="fileName"></span>
+        <label><input type="checkbox" id="sourcePrettify" disabled> Prettify</label>
         <div class="cEditor" id="sourceEditor"></div>
     </div>
     <div id="mapping" class="box">
         <h2>Mapping</h2>
-        <input type="file" id="mappingUpload" accept=".xsl, .xslt, .jq"/>
+        <input type="file" id="mappingUpload" accept=".xsl, .xslt, .jq" hidden/>
+        <button type="button" id="mappingChoose">Choose file</button>
+        <span id="mappingFileName" class="fileName"></span>
+        <label><input type="checkbox" id="mappingPrettify" disabled> Prettify</label>
         <span id="mappingLoading" style="display: none;">Loading...</span>
         <div class="cEditor" id="mappingEditor"></div>
     </div>
