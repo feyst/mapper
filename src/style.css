@@ -104,6 +104,27 @@ h1, h2, h5 {
     outline: none;
 }
 
+.cm-message {
+    padding: 3px 8px;
+    color: #b00020;
+    font-weight: bold;
+}
+
+/* The page's 11px is hard to read in the text beside the buttons and selects, which the browser sets at about 13.3px. */
+label, .fileName, .cm-message {
+    font-size: 1.3em;
+}
+
+/* A long file name is cut off, so the controls above an editor stay on the one line its height leaves them. */
+.fileName {
+    display: inline-block;
+    max-width: 30%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+}
+
 .inProgress {
     position:absolute;
     width:100%;
@@ -132,5 +153,9 @@ h1, h2, h5 {
 
     #layout {
         background: #2a2a2a;
+    }
+
+    .cm-message {
+        color: #ff6b6b;
     }
 }
